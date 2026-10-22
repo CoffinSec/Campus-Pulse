@@ -1,0 +1,9 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
+markers = ["live: requires a running Ollama server and installed Gemma 4 model"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

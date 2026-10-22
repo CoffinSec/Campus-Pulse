@@ -1,0 +1,5 @@
+building_name,month,electricity_kwh
+Block A,2026-05,1200
+Block A,2026-06,
+Block B,June 2026,not-a-number
+Block C,2026-13,400
