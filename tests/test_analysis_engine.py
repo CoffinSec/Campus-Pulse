@@ -56,7 +56,12 @@ def test_period_comparison(dataset):
     }
     assert len(result.evidence) == 10
     assert any("21950.0 - 21100.0" in line for line in result.trace)
-    assert build_chart(result).data[0].y == (21100, 21950)
+    chart = build_chart(result)
+    assert chart.layout.barmode == "group"
+    assert chart.data[0].y == (5200, 3200, 5800, 5300, 1600)
+    assert chart.data[1].y == (5600, 3100, 6200, 5500, 1550)
+    assert sum(chart.data[0].y) == 21100
+    assert sum(chart.data[1].y) == 21950
 
 
 def test_averages_have_explicit_denominators(dataset):

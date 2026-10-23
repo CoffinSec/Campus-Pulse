@@ -22,13 +22,16 @@ Campus resource reports often hide missing observations, unfair comparisons and 
 
 ## Features
 
-- PDF-first drag-and-drop upload; CSV as a fully functional secondary input.
+- Main-screen PDF/CSV upload, followed immediately by totals, building counts, covered months, highest building, a trend and a synthetic-data badge.
 - Separate PDF table selection, row preview, column mapping, explicit units and confirmation.
 - CSV UTF-8/BOM support, delimiter detection/override and physical line references.
 - Rankings with ties, chronological trends, group/period comparisons, totals, min/max/count and defined averages.
 - Missing values/periods, zero denominators, duplicate observations and partial-coverage checks.
 - English, Hindi and Hinglish planning prompts with constrained JSON; real language quality needs live validation.
-- Session history, calculation traces, source evidence and spreadsheet-safe evidence export.
+- Visible plain-language working and caveats beneath every answer; no user-facing JSON. Rankings highlight winners, comparisons show grouped building bars and change cards, and trends mark high/low months.
+- Student-normalized usage with missing-denominator exclusions, history-based anomaly flags and conditional what-if savings.
+- Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation/explanation stages and measured response time stay visible.
+- Guarded Gemma explanations, with Hindi prose for Hindi questions, plus a one-click PDF answer report and spreadsheet-safe evidence CSV.
 - Exact model status, local/remote disclosure and remote-processing consent.
 - Clearly labelled manual mode for disconnected development, without fake AI answers.
 
@@ -122,7 +125,7 @@ Academic Block A,2026-05,5200
 Academic Block A,2026-06,5600
 ```
 
-These example measurements are synthetic. Deterministic aliases include Building, Block, Hostel, Period, Consumption, Units Consumed and kWh. Ambiguous matches require explicit mapping. Optional columns: `building_id`, `department`, `occupancy` (people), `tariff_inr_per_kwh` (INR/kWh), `electricity_cost_inr` (INR). Tariff-to-cost derivation is not implemented; no tariff is assumed.
+These example measurements are synthetic. Deterministic aliases include Building, Block, Hostel, Period, Consumption, Units Consumed and kWh. Ambiguous matches require explicit mapping. Optional columns: `building_id`, `department`, `occupancy` (student counts when using per-student analysis), `tariff_inr_per_kwh` (INR/kWh), `electricity_cost_inr` (INR). Tariff-to-cost derivation is not implemented; no tariff is assumed.
 
 - Periods: `2026-06`, `2026-06-15`, `June 2026`, `Jun 2026`. Bare month names require a user-specified year. Ambiguous numeric date formats are rejected.
 - One observation per building/month. Duplicate keys stop validation rather than being silently summed or discarded. Daily/submeter datasets need explicit upstream aggregation.
@@ -148,22 +151,22 @@ Defaults: 10 MB upload, 30 pages, 30 tables, 20,000 extracted rows, 40 columns, 
 5. Ask “Compare May 2026 and June 2026 electricity consumption.”
 6. Ask “Show the monthly electricity consumption trend.”
 7. Ask “What was the electricity cost in December 2026?”
-8. Expand **View calculation** and **View source data**; optionally export evidence.
+8. Read **How this was calculated** and the visible caveats. Inspect **Source readings** if needed, or download the answer PDF and evidence CSV.
 9. Repeat with the CSV to verify equivalent results.
 
 Hindi/Hinglish examples: “June 2026 mein sabse zyada electricity kis building ne use ki?” and “जून 2026 में किस इमारत ने सबसे अधिक बिजली का उपयोग किया?”
 
-Calendar-relative questions use the current date in `APP_TIMEZONE`, not silently the latest dataset month. “Latest available month” refers explicitly to the dataset. Interpretation is model-dependent and the plan remains inspectable. Follow-up questions should repeat building/period context; hidden conversational memory is not assumed.
+Calendar-relative questions use the current date in `APP_TIMEZONE`, not silently the latest dataset month. “Latest available month” refers explicitly to the dataset. Interpretation is model-dependent; the UI shows what Gemma understood in plain language. Follow-ups such as “and in May?” use the previous validated plan, not the full chat transcript. Clicking a follow-up on an older answer uses that answer as its parent. Changing datasets or clearing history removes this context.
 
-The generator creates five fictional buildings × January–June 2026 with increasing/decreasing patterns, and writes those same observations into a genuine PDF grid. [DEMO.md](DEMO.md) contains exact fixture values, formulas, a presenter script and troubleshooting.
+The generator creates five fictional buildings × January–June 2026 with increasing/decreasing patterns, and writes those same observations into a genuine PDF grid. Both formats include monthly occupancy: Academic Block A 800, Academic Block B 600, Boys Hostel 400 and Girls Hostel 350; Library is blank intentionally. [DEMO.md](DEMO.md) contains exact fixture values, formulas, a presenter script and troubleshooting.
 
 ## Privacy and safety
 
 Uploaded bytes and results are session-scoped, not written to a database or shared cache. Reset/replacement clears application references, not a guarantee of forensic memory erasure. Hosting platforms may have their own retention policies. Filenames are sanitized for citations and never used as upload paths.
 
-The model receives the question, schema/units, available periods, current date/timezone and up to 100 category labels per field. Full document text, numeric observation rows, filenames and upload bytes are not sent. Questions/category names can still be sensitive. Local inference means local to the **app server**, not necessarily the user's device; remote transmission is disclosed and requires session consent.
+Planning receives the question, previous validated plan, schema/units, available periods, current date/timezone and up to 100 category labels per field. The separate explanation request receives labelled computed results and caveats, not raw observation rows. Full document text, numeric observation rows, filenames and upload bytes are not sent. Questions/category names can still be sensitive. Local inference means local to the **app server**, not necessarily the user's device; remote transmission is disclosed and requires session consent.
 
-Pydantic and semantic checks allow only predefined operations. Generated Python, SQL, shell commands, imports, `eval` and `exec` are never used. Unknown fields/columns/operators and provenance-column access are rejected. Prompt injection can still cause a bad interpretation, but cannot expand the engine's capabilities; inspect the displayed plan. Critical explanations come from computed values rather than model prose. Logs omit uploaded content and credentials. Evidence exports neutralize formula-leading text for spreadsheet safety. Streamlit usage telemetry is disabled.
+Pydantic and semantic checks allow only predefined operations. Generated Python, SQL, shell commands, imports, `eval` and `exec` are never used. Unknown fields/columns/operators and provenance-column access are rejected. Prompt injection can still cause a bad interpretation, but cannot expand the engine's capabilities; inspect the plain-language interpretation and inline formulas. Critical numbers come from computed values. Gemma explanations must reference whole verified facts rather than type numeric claims; the application rejects unknown references and literal numerals/number words, then inserts trusted labelled numbers. This validates numerical provenance, not every qualitative statement. Failed explanations visibly fall back to a deterministic summary. Logs omit uploaded content and credentials. Evidence exports neutralize formula-leading text for spreadsheet safety. Streamlit usage telemetry is disabled.
 
 ## Tests
 
@@ -177,7 +180,7 @@ python -m ruff format --check .
 python -m pip check
 ```
 
-Tests exercise real parsers, PDF/CSV equivalence, normalization, arithmetic, charts, evidence, rejected plans, mocked model failures and Streamlit state/widget interactions. Mocked inference is explicitly labelled. Normal runs skip six live-model cases.
+Tests exercise real parsers, PDF/CSV equivalence, normalization, arithmetic, charts, evidence, rejected plans, mocked model failures and Streamlit state/widget interactions. Mocked inference is explicitly labelled. Normal runs skip eleven opt-in live-model cases, including follow-ups, explanations, per-student usage and scenarios.
 
 After installing and checking Gemma, run real inference tests:
 
@@ -210,7 +213,7 @@ Remote live tests also require `ALLOW_REMOTE_INFERENCE=1` to acknowledge metadat
 
 ## Limitations and future work
 
-Before presenting the official AI demo, verify/install a Gemma 4 tag and pass the live tests. Hardware throughput and multilingual quality remain unverified here. No OCR, automatic table merging, water/waste schemas, per-student/area normalization, derived billing, causal diagnosis or production authentication is included. Consumption alone does not establish waste/efficiency. Floating-point measurement arithmetic is not an accounting ledger.
+Before presenting the official AI demo, verify/install a Gemma 4 tag and pass the live tests. Hardware throughput and multilingual quality remain unverified here. No OCR, automatic table merging, water/waste schemas, per-area normalization, derived billing, causal diagnosis or production authentication is included. Consumption alone does not establish waste/efficiency. Floating-point measurement arithmetic is not an accounting ledger.
 
 Next improvements: validate more real PDF layouts, add explicitly reviewed table merging/OCR, and evaluate real multilingual queries. A real Chromium workflow was checked in the cloud environment; no hosted demo is claimed. Still check the layout on the presentation laptop.
 

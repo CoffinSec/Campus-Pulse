@@ -13,16 +13,23 @@ BUILDINGS = {
     "Girls Hostel": [4600, 4700, 4800, 5000, 5300, 5500],
     "Library": [1800, 1750, 1700, 1650, 1600, 1550],
 }
+OCCUPANCY = {
+    "Academic Block A": 800,
+    "Academic Block B": 600,
+    "Boys Hostel": 400,
+    "Girls Hostel": 350,
+    "Library": "",
+}
 
 
 def generate(directory: Path = ROOT / "data") -> None:
     directory.mkdir(parents=True, exist_ok=True)
     rows = [
-        [building, f"2026-{month:02d}", values[month - 1]]
+        [building, f"2026-{month:02d}", values[month - 1], OCCUPANCY[building]]
         for month in range(1, 7)
         for building, values in BUILDINGS.items()
     ]
-    headers = ["building_name", "month", "electricity_kwh"]
+    headers = ["building_name", "month", "electricity_kwh", "occupancy"]
     with (directory / "campus_electricity_sample.csv").open(
         "w", newline="", encoding="utf-8"
     ) as file:
@@ -39,7 +46,7 @@ def generate(directory: Path = ROOT / "data") -> None:
         fontsize=8,
     )
     all_rows = [headers, *rows]
-    xs, top, height = [40, 270, 390, 555], 95, 21
+    xs, top, height = [40, 235, 335, 460, 555], 95, 21
     for index, row in enumerate(all_rows):
         y = top + index * height
         if index == 0:
@@ -54,7 +61,7 @@ def generate(directory: Path = ROOT / "data") -> None:
         page.draw_line((xs[0], top + i * height), (xs[-1], top + i * height), width=0.6)
     page.insert_text(
         (40, 785),
-        "Unit: kWh. One observation per fictional building per month. January-June 2026.",
+        "Units: kWh; occupancy = students. Library occupancy is intentionally unavailable.",
         fontsize=8,
     )
     page.insert_text(

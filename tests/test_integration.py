@@ -17,7 +17,12 @@ def test_pdf_upload_through_chart_and_evidence(pdf_bytes, settings):
     result = calculate(dataset, parsed)
     assert result.status == "ok"
     assert result.details["absolute_change"] == 850
-    assert build_chart(result).data[0].y == (21100, 21950)
+    chart = build_chart(result)
+    assert chart.layout.barmode == "group"
+    assert chart.data[0].y == (5200, 3200, 5800, 5300, 1600)
+    assert chart.data[1].y == (5600, 3100, 6200, 5500, 1550)
+    assert sum(chart.data[0].y) == 21100
+    assert sum(chart.data[1].y) == 21950
     evidence = evidence_table(result)
     assert len(evidence) == 10
     assert evidence.source_file.eq("uploaded_report.pdf").all()

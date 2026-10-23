@@ -45,7 +45,7 @@ Missing values remain NaN, distinct from zero. Missing periods/observations gene
 
 `gemma_client.py` calls the official Ollama client's `list()` and `chat()`. It checks the exact configured `gemma4:<tag>`, supplies `AnalysisPlan.model_json_schema()` as the constrained-output format, and uses bounded response/request limits. No automatic download, substitute family or fabricated response exists.
 
-The payload includes question, column schema/units, available months, current date/timezone and up to 100 distinct category labels per field. It excludes document text, bytes, filenames and numeric observation rows. Category lists may be sensitive; truncation is disclosed to the model. Remote processing requires session consent. Local means local to the app server.
+The planning payload includes question, previous validated plan, column schema/units, available months, current date/timezone and up to 100 distinct category labels per field. Explanations receive computed result facts and caveats in a separate request. No full conversation transcript is sent. It excludes document text, bytes, filenames and numeric observation rows. Category lists may be sensitive; truncation is disclosed to the model. Remote processing requires session consent. Local means local to the app server.
 
 Prompts describe English/Hindi/Hinglish, explicit averages, calendar-relative periods and unsupported causal claims. Language interpretation is not guaranteed by a valid JSON response. The real-model suite checks downstream answers, while mocked tests only validate integration mechanics/errors. Live inference was unavailable during implementation.
 
@@ -53,7 +53,7 @@ Prompts describe English/Hindi/Hinglish, explicit averages, calendar-relative pe
 
 Pydantic forbids extra fields and bounds intents, aggregations, filters and list sizes. `validation.py` checks columns, grouping, dates, numeric types and operation consistency. Provenance/raw columns cannot be queried by model plans. Unknown operations and code fields fail validation. Rates cannot be summed.
 
-The engine executes fixed functions, never generated Python, SQL, shell commands, imports or expressions. Embedded document instructions cannot expand the allowlist. Conservative question guards also refuse common waste/per-student claims and prevent a cost question being answered as consumption. These guards are not a complete semantic proof: a valid plan may still misinterpret a question. The plan remains visible for review.
+The engine executes fixed functions, never generated Python, SQL, shell commands, imports or expressions. Embedded document instructions cannot expand the allowlist. Conservative question guards also refuse common waste claims and prevent a cost question being answered as consumption. These guards are not a complete semantic proof: a valid plan may still misinterpret a question. The validated plan is summarized in plain language; model JSON stays internal.
 
 ## Calculation and missing data
 
@@ -67,7 +67,7 @@ Comparison requires two distinct explicit periods. Python computes old/new value
 
 `CalculationResult` includes status, plan, verified values, units, evidence, warnings, executed trace, chart type and comparison details. The engine chooses a chart for the executed operation; a model chart suggestion cannot force an inappropriate visualization. Plotly reads exactly the returned values, starts bar scales at zero and does not connect missing trend points. Unavailable answers have no chart.
 
-Numerical explanations/formulas use deterministic templates, not free-form model numbers or causal claims. The trace records actual filters, group intermediate values, formulas and denominators; input rows and validated plans are visible.
+Inline numerical formulas come from executed calculations and real citations, without user-facing JSON. A separate Gemma request composes explanatory prose using whole-fact placeholders. `explanations.py` rejects unknown placeholders, literal digits (including Devanagari) and supported number-word forms, then substitutes trusted labelled facts. The optional check suggestions are allowlisted and localized. This checks numerical provenance, not the truth of every qualitative phrase. If the model fails or introduces an unverified number, the answer remains available with a visibly labelled deterministic fallback.
 
 Every source row carries filename, PDF page/table if applicable, source row and stable row ID. CSV pages remain null. Evidence is selected from real rows, not reconstructed by the model. Ranking includes the candidate population; comparisons include both periods. Unavailable answers assert no precise citation. CSV export neutralizes formula-leading labels without mutating source values.
 
@@ -90,3 +90,18 @@ The sidebar shows exact model and endpoint classification. Remote consent descri
 | `app.py` | Review, consent, chat and session lifecycle |
 
 Tests use real parser fixtures and Streamlit widgets, separate mocked model tests and opt-in live inference. OCR, cross-table merging, extra resource schemas, production authentication and a real-world model accuracy evaluation remain outside this MVP. The exact candidate model tag and live Gemma behavior remain unverified until the documented external prerequisites are supplied.
+
+
+## Overview, student denominators, anomalies and scenarios
+
+The overview computes totals, highest-building ties and a short annotated trend before the first question. Rankings retain all candidates for winner-highlighted charts; period comparisons retain a separate verified building/month breakdown for grouped bars. Overall changes remain computed from the full selected observations.
+
+`per_student` computes sum(kWh) / sum(monthly student counts) for each eligible building. A building with any missing/zero count or missing electricity in the selected period is excluded, with a named warning. For several months the unit is **kWh/student-month**, not kWh per unique student. Sample Library counts are intentionally absent in both CSV and PDF. The data confirmation screen explicitly asks users to map occupancy as student counts.
+
+`scenario` requires a bounded reduction percentage and exact target building names. Period filters select the baseline population; target buildings are separate from filters so unchanged buildings remain in the campus total. Savings = target usage × reduction/100; new campus total = measured campus total − savings. These are conditional calculations, never predictions.
+
+Anomaly flags use only the building's own prior history: at least three earlier valid adjacent-month percentage changes, a positive prior value, and a deviation from the prior median exceeding max(20 percentage points, 3 × 1.4826 × prior median absolute deviation). Gaps/zero baselines never become fabricated changes. Each flagged observation retains source references and says **cause unknown**. With insufficient history, no flag is not proof of normality.
+
+Follow-up buttons pass their own parent answer's plan; typed follow-ups use the latest planned answer. Dataset replacement, table changes, reconfirmation and history reset invalidate context. Model calls are staged as planning, calculation and explanation, with elapsed wall time stored per answer.
+
+`reporting.py` uses the already-installed PyMuPDF to generate a self-contained, single-page PDF with a vector chart, result, formulas, citations and caveats. It escapes untrusted labels and requires no hosted renderer. Large results are explicitly abbreviated (up to ten chart categories, four working lines and six caveats); full working remains in the app and all source rows are in the CSV. Reports are session-local and do not trigger inference again.

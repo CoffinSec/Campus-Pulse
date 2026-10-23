@@ -17,6 +17,7 @@ def evidence_table(result: CalculationResult) -> pd.DataFrame:
         "building_name",
         "month",
         result.plan.metric,
+        *(["occupancy", "raw_occupancy"] if result.plan.intent == "per_student" else []),
         f"raw_{result.plan.metric}",
         "raw_month",
     ]

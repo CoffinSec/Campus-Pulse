@@ -4,18 +4,20 @@ Validated in the cloud checkout using Python 3.12.14. This records actual execut
 
 | Check | Observed result |
 |---|---|
-| `python -m pytest -q` | **109 passed, 6 skipped**; skipped cases require opt-in live Gemma inference |
+| `python -m pytest -q` | **151 passed, 11 skipped**; skipped cases require opt-in live Gemma inference |
 | `python -m scripts.smoke_test` | Passed: real PDF and CSV ingestion, normalization, ranking, comparison, trend, missing cost, charts and evidence |
 | `python -m ruff check .` | Passed |
 | `python -m ruff format --check .` | Passed |
 | `python -m pip check` | No broken requirements |
 | `bash scripts/setup_cloud.sh` | Passed: repeatable pinned installation, dependency check and smoke |
 | Running Streamlit service | Started; health endpoint returned HTTP 200 and `ok` |
-| Real Chromium browser, 1440 × 1050 | PDF file upload, review/confirmation, manual result, actual Plotly rendering, evidence export control and session reset verified; no browser page errors in the upload workflow |
+| Real Chromium browser, 1440 × 1100 | Main-screen PDF upload, confirmation, immediate overview, winner-highlighted ranking, grouped comparison, visible missing-occupancy warning, actual PDF/CSV downloads and reset verified after a fresh server launch; no browser page errors |
 | `python -m scripts.check_model` | **Unavailable, exit 1:** local Ollama endpoint refused connection |
 | Model catalog / registry requests | Blocked by network proxy policy with HTTP 403; exact candidate tag unverified |
 
-Streamlit AppTest additionally exercises PDF-to-CSV replacement, stale-result clearing, confirmation gating, ranking/comparison, and chat with explicitly mocked successful/invalid model output. The mocked tests do not prove language understanding or real inference.
+Streamlit AppTest additionally exercises PDF-to-CSV replacement, stale-result clearing, confirmation gating, ranking/comparison/what-if controls, follow-ups tied to their own parent answer, response timing, and chat with explicitly mocked successful/invalid model output. Invalid explanation numbers preserve the calculated answer and produce a visible fallback. The mocked tests do not prove language understanding or real inference.
+
+Additional tests cover per-student denominators, scenario scope and bounds, overview totals, prior-history anomaly flags without future-data leakage, explanation fact validation and remote consent, and single-page PDF generation across six analysis types. The browser-downloaded PDF was opened and visually inspected for its chart, formula, source citation and caveats. Main-screen upload and overview screenshots were also inspected; trend extrema labels are visible without clipping.
 
 ## Actual sample results
 
@@ -25,7 +27,11 @@ Streamlit AppTest additionally exercises PDF-to-CSV replacement, stale-result cl
 - Difference: **850 kWh**; percentage: **4.028436018957346…%**.
 - Chronological monthly totals: **18,800; 19,000; 19,500; 20,150; 21,100; 21,950 kWh**.
 - Unavailable cost produces no numeric answer and no chart.
-- Browser Plotly inspection confirmed the displayed all-month ranking value **32,200 kWh** for Boys Hostel, computed from its six source observations.
+- Overview: **120,500 kWh**, **5 buildings**, **6 months**; highest total **Boys Hostel, 32,200 kWh**.
+- Browser Plotly inspection confirmed June ranking values **6,200; 5,600; 5,500; 3,100; 1,550 kWh**, with a different winner color, and grouped May/June bars whose sums match the totals above.
+- June per-student usage: Boys Hostel **15.5 kWh/student**; Library is excluded with a visible missing-occupancy warning. Multi-month ratios are explicitly labelled per student-month.
+- June hostels reduced by 10%: conditional saving **1,170 kWh**, campus total **21,950 → 20,780 kWh**. The baseline includes unaffected buildings.
+- The smooth synthetic sample produces no anomaly flags. An injected spike is flagged in a test with its source row and “cause unknown” wording.
 
 ## Official-source verification
 

@@ -5,6 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 
+from campuspulse.extended_analysis import per_student, scenario
 from campuspulse.models import AnalysisPlan, CalculationResult, Caveat, Dataset
 from campuspulse.validation import validate_plan
 
@@ -100,6 +101,10 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
                 message="This answer uses incomplete observations. Missing values are excluded, never treated as zero.",
             )
         )
+    if plan.intent == "per_student":
+        return per_student(frame, plan, warnings, trace)
+    if plan.intent == "scenario":
+        return scenario(frame, plan, warnings, trace)
     if plan.intent == "missing_values":
         value = int(frame[plan.metric].isna().sum())
         return CalculationResult(
@@ -118,6 +123,7 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             "All matching numeric values are missing. No total or comparison can be calculated."
         )
     details = {}
+    breakdown = pd.DataFrame()
     if plan.intent == "period_comparison":
         old_period, new_period = plan.periods
         groups = [frame.loc[frame.month.eq(p)] for p in plan.periods]
@@ -146,6 +152,12 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
                 )
             )
         values = pd.DataFrame({"label": plan.periods, "value": [old, new]})
+        breakdown = (
+            frame.groupby(["building_name", "month"])[plan.metric]
+            .apply(lambda s: _aggregate(s, plan.aggregation))
+            .reset_index()
+            .rename(columns={"building_name": "label", "month": "period", plan.metric: "value"})
+        )
         details = {"old": old, "new": new, "absolute_change": delta, "percentage_change": percent}
         trace.extend(
             [
@@ -188,6 +200,7 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             )
             if values.empty:
                 return unavailable("No groups contain numeric observations to rank.")
+            breakdown = values.copy()
             # Include ties at the cutoff rather than arbitrarily dropping a co-winner.
             cutoff = values.iloc[min(plan.limit, len(values)) - 1]["value"]
             values = values.loc[
@@ -256,4 +269,5 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
         warnings,
         chart,
         details,
+        breakdown,
     )

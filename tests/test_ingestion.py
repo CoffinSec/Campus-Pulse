@@ -61,7 +61,7 @@ def test_pdf_matches_csv(pdf_bytes, csv_bytes, settings):
         normalize(tables[0], suggest_mapping(list(tables[0].frame)), "kWh").frame
         for tables in [pdf, csv]
     ]
-    cols = ["building_name", "month", "electricity_kwh"]
+    cols = ["building_name", "month", "electricity_kwh", "occupancy"]
     pd.testing.assert_frame_equal(left[cols], right[cols])
     assert left.source_page.eq(1).all()
     assert left.source_row.tolist() == list(range(2, 32))

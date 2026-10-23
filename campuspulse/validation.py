@@ -10,6 +10,11 @@ def validate_plan(plan: AnalysisPlan, dataset: Dataset) -> None:
     columns = {c.name: c for c in dataset.columns}
     if plan.metric not in NUMERIC_UNITS:
         raise PlanError("Unknown metric. Select an available numeric column.")
+    if plan.intent == "scenario":
+        if len(set(plan.scenario_buildings)) != len(plan.scenario_buildings):
+            raise PlanError("Select each scenario building once.")
+        if set(plan.scenario_buildings) - set(dataset.frame.building_name):
+            raise PlanError("A scenario references a building absent from the dataset.")
     for group in plan.group_by:
         if group not in columns or columns[group].dtype == "number":
             raise PlanError("Grouping requires an available category or month column.")

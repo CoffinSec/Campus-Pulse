@@ -61,6 +61,8 @@ class AnalysisPlan(StrictModel):
         "unavailable",
         "unsupported",
         "clarification",
+        "per_student",
+        "scenario",
     ]
     metric: str = Field(min_length=1, max_length=80)
     aggregation: Literal["sum", "mean", "min", "max", "count"]
@@ -72,9 +74,30 @@ class AnalysisPlan(StrictModel):
     limit: int = Field(default=10, ge=1, le=100)
     chart_type: Literal["bar", "line", "metric", "none"] = "bar"
     reason: str = Field(default="", max_length=500)
+    reduction_percent: float | None = Field(default=None, ge=0, le=100)
+    scenario_buildings: list[str] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def coherent(self) -> "AnalysisPlan":
+        if self.intent == "scenario":
+            if self.reduction_percent is None or not self.scenario_buildings:
+                raise ValueError("A scenario needs a reduction percentage and selected buildings.")
+            if self.metric != "electricity_kwh" or self.aggregation != "sum" or self.group_by:
+                raise ValueError("Scenarios compare total electricity usage.")
+            if any(f.column == "building_name" for f in self.filters):
+                raise ValueError(
+                    "Select scenario buildings separately so the campus total retains other buildings."
+                )
+        elif self.reduction_percent is not None or self.scenario_buildings:
+            raise ValueError("Only scenarios accept a reduction or scenario buildings.")
+        if self.intent == "per_student" and (
+            self.metric != "electricity_kwh"
+            or self.aggregation != "mean"
+            or self.group_by != ["building_name"]
+        ):
+            raise ValueError(
+                "Per-student usage requires electricity, mean and grouping by building."
+            )
         if self.intent == "period_comparison" and (len(set(self.periods)) != 2):
             raise ValueError("Period comparison needs two distinct months, old then new.")
         if self.intent != "period_comparison" and self.periods:
@@ -127,3 +150,5 @@ class CalculationResult:
     warnings: list[Caveat]
     chart_type: str = "none"
     details: dict[str, float | str | None] = field(default_factory=dict)
+    breakdown: pd.DataFrame = field(default_factory=pd.DataFrame)
+    working: list[str] = field(default_factory=list)

@@ -14,7 +14,7 @@ Upload `data/campus_electricity_sample.pdf` or use **Load synthetic PDF**. This 
 
 Say: “This is SYNTHETIC DEMONSTRATION DATA: fictional buildings, with no official IIMT University data or endorsement.”
 
-Show all three mapped fields, kWh units and page/table/row references. Check the review checkbox and **Confirm dataset**. Expect 30 observations, five buildings, six months and zero missing kWh cells.
+Show the core fields, optional student counts, kWh units and page/table/row references. Check the review checkbox and **Confirm dataset**. The immediate overview shows 120,500 kWh, five buildings, six months, Boys Hostel as the highest building and an annotated trend. All 30 kWh readings exist; Library student counts are intentionally missing.
 
 ## 1:15–2:00 · Ranking
 
@@ -30,7 +30,7 @@ Expected: **Boys Hostel, 6,200 kWh**.
 | Girls Hostel | 5,500 | 1 / 1 / 30 | 30 |
 | Library | 1,550 | 1 / 1 / 31 | 31 |
 
-These citations apply to the generated fixture; every upload receives its own extracted references. Show the bar chart and expand **View calculation**: month filter, grouped sum, descending sort. Expand **View source data**: all five candidates establish the winner.
+These citations apply to the generated fixture; every upload receives its own extracted references. Show the winner-highlighted chart with value labels. The plain-language interpretation, actual formula and row reference are already visible under the answer. Open **Source readings** only if you need all five comparison candidates; JSON is never shown.
 
 Say: “Gemma chooses a validated operation. Python computes the number. These rows are the evidence.”
 
@@ -46,7 +46,7 @@ Percentage change = ((21950 - 21100) / 21100) × 100
                   = 4.028436018957346...% (display: 4.03%)
 ```
 
-Show the two bars and executed trace. Ten source rows contribute. Explain that a zero old value produces an undefined percentage, and unequal building coverage generates a warning.
+Show May/June grouped bars for each building, plus overall change and percentage metric cards. Read the inline formula. Ten source rows contribute. Explain that a zero old value produces an undefined percentage, and unequal building coverage generates a warning.
 
 ## 2:45–3:15 · Trend
 
@@ -77,7 +77,7 @@ Optional: **Which building wastes the most electricity?** Consumption alone cann
 
 After passing live tests, try: **June 2026 mein sabse zyada electricity kis building ne use ki?** or **जून 2026 में किस इमारत ने सबसे अधिक बिजली का उपयोग किया?** The ranking remains Boys Hostel, 6,200 kWh.
 
-Say: “Only the question and schema/category metadata go to Gemma, not the whole document. A remote endpoint receives disclosed metadata. A cloud app does not process everything on my laptop.”
+Say: “Gemma receives the question, schema/category metadata, prior plan for follow-ups and computed facts for explanations, not the whole document. A remote endpoint receives disclosed metadata. A cloud app does not process everything on my laptop.”
 
 Optionally load and confirm the CSV, then repeat the comparison to demonstrate the shared engine.
 
@@ -95,3 +95,13 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 | Replaced file | Confirm the new dataset; old answers are intentionally cleared. |
 
 **Disconnected backup:** load/confirm the PDF, open **Manual analysis · no AI**, select Highest building and June, then Period comparison, Monthly trend and Unavailable cost. This demonstrates ingestion, math, charts and evidence only. Explicitly state that live Gemma is not demonstrated and the track requirement remains incomplete.
+
+
+## Optional high-impact extensions
+
+- Ask **Compare kWh per student in June 2026.** Expected: Academic Block A **7**, Academic Block B **5.1666…**, Boys Hostel **15.5**, Girls Hostel **15.7142… kWh/student**. The visible warning says **Library: no occupancy data for one or more selected months, can’t compare.** The missing value is never filled with zero. Multiple months instead use student-months, explicitly labelled.
+- Follow the June ranking with **and in May?** Expected Boys Hostel **5,800 kWh**. Click **What about hostels only?** on an answer to scope its own plan. Real language interpretation requires a connected Gemma; offline tests mock that part explicitly.
+- Ask **What if the hostels cut usage by 10% in June 2026?** Hostels total **11,700 kWh**; saving **1,170 kWh**; campus total **21,950 − 1,170 = 20,780 kWh**, a **5.33%** campus reduction. The requested 10% applies only to the hostels, not the whole campus. The chart and caveat identify this as conditional.
+- Show the **What this means / what could be checked** box. Gemma supplies prose using verified fact references; unverified numerical claims cause a visible fallback. Hindi questions request Hindi explanatory prose. Suggested checks are not established causes.
+- Download the one-page PDF answer and source CSV directly beneath an answer.
+- The bundled smooth series has no anomaly flags. The automated spike fixture proves detection without fabricating an anomaly in the sample; the UI always states “cause unknown” for flags. A flag needs at least three prior valid monthly changes.

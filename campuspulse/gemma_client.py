@@ -5,7 +5,6 @@ from dataclasses import dataclass
 
 import httpx
 import ollama
-from pydantic import ValidationError
 
 from campuspulse.config import Settings
 from campuspulse.models import AIError, AnalysisPlan
@@ -75,6 +74,12 @@ class GemmaClient:
             )
 
     def plan_json(self, system: str, payload: str) -> str:
+        return self._structured_json(system, payload, AnalysisPlan.model_json_schema())
+
+    def explanation_json(self, system: str, payload: str, schema: dict) -> str:
+        return self._structured_json(system, payload, schema)
+
+    def _structured_json(self, system: str, payload: str, schema: dict) -> str:
         status = self.check()
         if not status.ready:
             raise AIError(status.message)
@@ -85,7 +90,7 @@ class GemmaClient:
                     {"role": "system", "content": system},
                     {"role": "user", "content": payload},
                 ],
-                format=AnalysisPlan.model_json_schema(),
+                format=schema,
                 options={"temperature": 0, "num_predict": 1800},
                 stream=False,
             )
@@ -108,7 +113,7 @@ class GemmaClient:
             raise AIError(
                 "Gemma request failed. Check Ollama's model availability, server logs and endpoint configuration."
             ) from exc
-        except (KeyError, AttributeError, TypeError, ValidationError) as exc:
+        except (KeyError, AttributeError, TypeError, ValueError) as exc:
             raise AIError(
                 "Ollama returned an unexpected response format. Check the server and client versions."
             ) from exc
