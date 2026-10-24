@@ -40,18 +40,24 @@ def test_dashboard_confirm_analyze_replace_clear():
         assert app.session_state["history"] == []
         assert not app.get("json")
         assert app.chat_input[0].disabled
-        selectbox(app, "Month filter (ignored for period comparison)").select("2026-06")
+        assert selectbox(app, "Students (optional)").value == "occupancy"
+        assert not any(s.label == "Old period" for s in app.selectbox)
+        assert not any(n.label == "What-if reduction (%)" for n in app.number_input)
+        selectbox(app, "Month").select("2026-06")
         button(app, "Run verified calculation").click().run()
         assert not app.exception
         assert "6,200.00 kWh" in app.session_state["history"][0]["result"].answer
         assert any(m.value == "**How this was calculated**" for m in app.markdown)
         assert app.session_state["history"][0]["report"].startswith(b"%PDF")
         assert len([b for b in app.button if b.key and b.key.startswith("followup_")]) == 3
-        selectbox(app, "Analysis").select("Period comparison")
+        selectbox(app, "Analysis").select("Period comparison").run()
+        assert not any(s.label == "Month" for s in app.selectbox)
+        assert selectbox(app, "Old period").value == "2026-05"
         button(app, "Run verified calculation").click().run()
         assert not app.exception
         assert app.session_state["history"][-1]["result"].details["absolute_change"] == 850
-        selectbox(app, "Analysis").select("What-if reduction")
+        selectbox(app, "Analysis").select("What-if reduction").run()
+        selectbox(app, "Month").select("2026-06")
         next(m for m in app.multiselect if m.label == "Buildings (empty = all)").select(
             "Boys Hostel"
         ).select("Girls Hostel")
@@ -66,7 +72,7 @@ def test_dashboard_confirm_analyze_replace_clear():
         assert not app.exception
         assert "dataset" not in app.session_state
         assert not app.session_state["history"]
-        button(app, "Clear dataset and chat").click().run()
+        button(app, "Use another file").click().run()
         assert not app.exception
         assert "tables" not in app.session_state
 

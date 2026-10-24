@@ -22,7 +22,7 @@ from campuspulse.insights import anomaly_flags, overview
 from campuspulse.models import AIError, AnalysisPlan, Filter, PlanError
 from campuspulse.presentation import calculation_lines, describe_plan, followup_questions
 from campuspulse.question_planner import plan_question
-from campuspulse.reporting import answer_pdf
+from campuspulse.reporting import answer_pdf, report_png
 from campuspulse.visualization import WINNER, build_chart
 
 
@@ -334,3 +334,10 @@ def test_downloadable_one_page_pdf(dataset, intent):
             assert "20,780.00" in text
         if intent == "ranking":
             assert "6,200.00" in text
+            picture = report_png(report)
+            assert picture.startswith(b"\x89PNG\r\n\x1a\n")
+            with pymupdf.open(stream=picture, filetype="png") as image:
+                assert image.page_count == 1
+                assert image[0].rect.width / image[0].rect.height == pytest.approx(
+                    document[0].rect.width / document[0].rect.height, rel=0.01
+                )

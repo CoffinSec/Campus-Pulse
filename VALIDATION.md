@@ -19,6 +19,18 @@ Streamlit AppTest additionally exercises PDF-to-CSV replacement, stale-result cl
 
 Additional tests cover per-student denominators, scenario scope and bounds, overview totals, prior-history anomaly flags without future-data leakage, explanation fact validation and remote consent, and single-page PDF generation across six analysis types. The browser-downloaded PDF was opened and visually inspected for its chart, formula, source citation and caveats. Main-screen upload and overview screenshots were also inspected; trend extrema labels are visible without clipping.
 
+### UI refresh checked on 24 October 2026
+
+Compared the supplied `Campus-Pulse-updated.zip` with the existing application and adapted its guided upload flow, prominent answer text, calculation styling, visible student mapping and image-export idea. The existing calculation engine, explanation validation and parent-specific follow-up handling were retained.
+
+- Full suite: **151 passed, 11 skipped**; Ruff lint, format and whitespace checks passed.
+- Chromium at **1440 × 1050** and **390 × 844**: actual PDF upload, confirmation, overview, manual ranking, PDF/PNG/CSV downloads and file reset passed, with no application exceptions.
+- At mobile width, the page had no horizontal overflow. A separate CSV flow verified that the full multi-row formula and citation wrap within their container, with no browser page errors.
+- AppTest verifies that comparison periods and scenario percentages appear only for the relevant analysis, that student mapping remains available, and that June scenario results remain **21,950 → 20,780 kWh** with **1,170 kWh** saved.
+- PNG tests check the file signature and page aspect ratio against the PDF. The real browser download also returned valid PNG bytes. No new dependency or live inference is required for the UI or export changes.
+
+The [landing screenshot](docs/screenshots/landing.png) is from the actual browser run. Mobile checks emulate viewport dimensions; they do not claim testing on a physical phone.
+
 ## Actual sample results
 
 - PDF and CSV each extract 30 equivalent observations.

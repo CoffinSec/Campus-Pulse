@@ -12,6 +12,12 @@ GOLD = (0.86, 0.55, 0.15)
 MUTED = (0.61, 0.74, 0.75)
 
 
+def report_png(report: bytes) -> bytes:
+    """Render the same one-page report for sharing, with its working and caveats."""
+    with pymupdf.open(stream=report, filetype="pdf") as document:
+        return document[0].get_pixmap(dpi=144, alpha=False).tobytes("png")
+
+
 def _text(page, rect, text, size=9):
     page.insert_htmlbox(
         rect, f'<div style="font-size:{size}pt;color:#142f35">{escape(str(text))}</div>'

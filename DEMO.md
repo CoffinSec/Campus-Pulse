@@ -6,7 +6,7 @@ Preflight: run `python -m pytest -q`, `python -m scripts.smoke_test`, and `pytho
 
 Say: “Campus reports contain useful measurements, but charts can hide missing data and unfair comparisons. CampusPulse lets someone ask a question, see the calculation and inspect the source.”
 
-Show model status and the exact tag. Explain whether inference is local to the app server or remote. Do not call manual analysis AI.
+Show model status and the exact tag in **Connection settings** beside the app title. Explain whether inference is local to the app server or remote. Do not call manual analysis AI.
 
 ## 0:30–1:15 · Upload and confirm
 
@@ -94,7 +94,7 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 | Validation error | Correct mapping, units, periods, missing labels or duplicate building/month records. |
 | Replaced file | Confirm the new dataset; old answers are intentionally cleared. |
 
-**Disconnected backup:** load/confirm the PDF, open **Manual analysis · no AI**, select Highest building and June, then Period comparison, Monthly trend and Unavailable cost. This demonstrates ingestion, math, charts and evidence only. Explicitly state that live Gemma is not demonstrated and the track requirement remains incomplete.
+**Disconnected backup:** load/confirm the PDF, open **Choose a calculation · no AI needed**, select Highest building and June, then Period comparison, Monthly trend and Unavailable cost. The controls change with the analysis. This demonstrates ingestion, math, charts and evidence only. Explicitly state that live Gemma is not demonstrated and the track requirement remains incomplete.
 
 
 ## Optional high-impact extensions
@@ -103,5 +103,5 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 - Follow the June ranking with **and in May?** Expected Boys Hostel **5,800 kWh**. Click **What about hostels only?** on an answer to scope its own plan. Real language interpretation requires a connected Gemma; offline tests mock that part explicitly.
 - Ask **What if the hostels cut usage by 10% in June 2026?** Hostels total **11,700 kWh**; saving **1,170 kWh**; campus total **21,950 − 1,170 = 20,780 kWh**, a **5.33%** campus reduction. The requested 10% applies only to the hostels, not the whole campus. The chart and caveat identify this as conditional.
 - Show the **What this means / what could be checked** box. Gemma supplies prose using verified fact references; unverified numerical claims cause a visible fallback. Hindi questions request Hindi explanatory prose. Suggested checks are not established causes.
-- Download the one-page PDF answer and source CSV directly beneath an answer.
+- Download the one-page PDF, a PNG of the same report, or source CSV directly beneath an answer.
 - The bundled smooth series has no anomaly flags. The automated spike fixture proves detection without fabricating an anomaly in the sample; the UI always states “cause unknown” for flags. A flag needs at least three prior valid monthly changes.

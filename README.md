@@ -22,7 +22,9 @@ Campus resource reports often hide missing observations, unfair comparisons and 
 
 ## Features
 
-- Main-screen PDF/CSV upload, followed immediately by totals, building counts, covered months, highest building, a trend and a synthetic-data badge.
+![CampusPulse upload screen with guided steps, main-screen upload and sample reports](docs/screenshots/landing.png)
+
+- Main-screen PDF/CSV upload with a three-step guide, active-file summary, and responsive layout. After confirmation: totals, building counts, covered months, highest building, a trend and a synthetic-data badge.
 - Separate PDF table selection, row preview, column mapping, explicit units and confirmation.
 - CSV UTF-8/BOM support, delimiter detection/override and physical line references.
 - Rankings with ties, chronological trends, group/period comparisons, totals, min/max/count and defined averages.
@@ -31,9 +33,9 @@ Campus resource reports often hide missing observations, unfair comparisons and 
 - Visible plain-language working and caveats beneath every answer; no user-facing JSON. Rankings highlight winners, comparisons show grouped building bars and change cards, and trends mark high/low months.
 - Student-normalized usage with missing-denominator exclusions, history-based anomaly flags and conditional what-if savings.
 - Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation/explanation stages and measured response time stay visible.
-- Guarded Gemma explanations, with Hindi prose for Hindi questions, plus a one-click PDF answer report and spreadsheet-safe evidence CSV.
+- Guarded Gemma explanations, with Hindi prose for Hindi questions, plus a one-click PDF or PNG answer report and spreadsheet-safe evidence CSV. The image contains the same chart, working and caveats as the PDF.
 - Exact model status, local/remote disclosure and remote-processing consent.
-- Clearly labelled manual mode for disconnected development, without fake AI answers.
+- Clearly labelled manual mode for disconnected development, without fake AI answers. Controls adapt to the selected analysis; comparison periods and what-if percentages appear only when needed.
 
 ## Architecture and stack
 

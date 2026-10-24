@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from campuspulse.models import CalculationResult
 from campuspulse.presentation import METRICS, period_label
 
-TEAL = "#087F8C"
+TEAL = "#0B7869"
 WINNER = "#DB8B25"
 MUTED = "#9BBDBF"
 
@@ -96,11 +96,16 @@ def build_chart(result: CalculationResult) -> go.Figure | None:
         title=title,
         yaxis_title=f"{METRICS.get(result.plan.metric, 'Usage').capitalize()} ({result.unit})",
         template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "sans-serif", "color": "#46655D", "size": 12},
         margin={"l": 20, "r": 20, "t": 65, "b": 50},
         height=340,
         legend={"orientation": "h", "y": -0.2},
     )
-    fig.update_yaxes(rangemode="tozero", automargin=True)
+    fig.update_yaxes(
+        rangemode="tozero", automargin=True, gridcolor="#E3EBE7", zerolinecolor="#CDDCD5"
+    )
     plotted = result.breakdown if not result.breakdown.empty else result.values
     maximum = plotted.value.max()
     if pd.notna(maximum):

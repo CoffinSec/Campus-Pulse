@@ -26,7 +26,8 @@ from campuspulse.presentation import (
     period_label,
 )
 from campuspulse.question_planner import plan_question, suggested_questions
-from campuspulse.reporting import answer_pdf
+from campuspulse.reporting import answer_pdf, report_png
+from campuspulse.ui import CSS, progress_steps, styled_text
 from campuspulse.visualization import build_chart
 
 ROOT = Path(__file__).resolve().parent
@@ -73,14 +74,18 @@ def review_data() -> None:
     if not tables:
         return
     st.caption(
-        "Confirm what each column means before asking questions. Separate PDF tables stay separate."
+        "We matched the columns for you. Check the preview and adjust anything that looks wrong."
     )
     generation = st.session_state.generation
-    selected = st.selectbox(
-        "Detected table",
-        range(len(tables)),
-        format_func=lambda i: tables[i].table_id,
-        key=f"table_{generation}",
+    selected = (
+        st.selectbox(
+            "Detected table",
+            range(len(tables)),
+            format_func=lambda i: tables[i].table_id,
+            key=f"table_{generation}",
+        )
+        if len(tables) > 1
+        else 0
     )
     if st.session_state.get("selected_table") != selected:
         st.session_state.pop("dataset", None)
@@ -90,21 +95,12 @@ def review_data() -> None:
         st.session_state.selected_table = selected
     table = tables[selected]
     st.dataframe(
-        table.frame.head(50)
-        .drop(columns=["row_id"])
-        .rename(
-            columns={
-                "source_file": "Report",
-                "source_page": "Page",
-                "source_table": "Table",
-                "source_row": "Original row",
-            }
-        ),
+        table.frame[[c for c in table.frame if c not in PROVENANCE]].head(8),
         hide_index=True,
         width="stretch",
     )
     st.caption(
-        f"Preview: first {min(50, len(table.frame))} of {len(table.frame)} extracted rows. Source row = CSV physical end-line or PDF table row (header included)."
+        f"Preview: first {min(8, len(table.frame))} of {len(table.frame)} readings. Original row references are kept with every calculation."
     )
     if len(tables) > 1:
         st.info(
@@ -115,15 +111,16 @@ def review_data() -> None:
     columns = [c for c in table.frame if c not in PROVENANCE]
     suggestions = suggest_mapping(columns)
     with st.form(f"schema_{generation}_{selected}"):
-        st.markdown("**Column mapping**")
+        st.markdown("**Match your columns**")
         mapping = {}
         options = ["— Select —", *columns]
-        cols = st.columns(3)
+        cols = st.columns(4)
         for i, (target, label) in enumerate(
             [
                 ("building_name", "Building / block"),
                 ("month", "Month / date"),
                 ("electricity_kwh", "Electricity consumption"),
+                ("occupancy", "Students (optional)"),
             ]
         ):
             choice = cols[i].selectbox(
@@ -135,7 +132,7 @@ def review_data() -> None:
                 mapping[target] = choice
         with st.expander("Optional columns and month-only dates"):
             for target in ALIASES:
-                if target in {"building_name", "month", "electricity_kwh"}:
+                if target in {"building_name", "month", "electricity_kwh", "occupancy"}:
                     continue
                 choice = st.selectbox(
                     target.replace("_", " ").title(),
@@ -180,44 +177,53 @@ def review_data() -> None:
 
 
 def manual_analysis(dataset) -> None:
-    with st.expander("Manual analysis · no AI (available while Gemma is disconnected)"):
-        st.info(
-            "Choose structured operations directly. This mode does not interpret language and does not satisfy the Gemma demonstration requirement."
+    with st.expander("Choose a calculation · no AI needed"):
+        st.caption(
+            "Pick an analysis and its scope. This uses the same verified calculations without Gemma."
+        )
+        operation = st.selectbox(
+            "Analysis",
+            [
+                "Highest building",
+                "Lowest building",
+                "Monthly trend",
+                "Period comparison",
+                "Group comparison",
+                "Total",
+                "Mean of observations",
+                "Mean of monthly totals",
+                "Mean per building",
+                "Missing values",
+                "Unavailable cost",
+                "Usage per student",
+                "What-if reduction",
+            ],
+            key=f"manual_operation_{st.session_state.generation}",
         )
         with st.form("manual_analysis"):
-            operation = st.selectbox(
-                "Analysis",
-                [
-                    "Highest building",
-                    "Lowest building",
-                    "Monthly trend",
-                    "Period comparison",
-                    "Group comparison",
-                    "Total",
-                    "Mean of observations",
-                    "Mean of monthly totals",
-                    "Mean per building",
-                    "Missing values",
-                    "Unavailable cost",
-                    "Usage per student",
-                    "What-if reduction",
-                ],
-            )
             buildings = sorted(dataset.frame.building_name.unique())
             selected_buildings = st.multiselect("Buildings (empty = all)", buildings)
-            month = st.selectbox(
-                "Month filter (ignored for period comparison)", ["All months", *dataset.months]
-            )
-            a, b = st.columns(2)
-            old = a.selectbox("Old period", dataset.months, index=max(0, len(dataset.months) - 2))
-            new = b.selectbox("New period", dataset.months, index=len(dataset.months) - 1)
-            reduction = st.number_input(
-                "What-if reduction (%)", min_value=0.0, max_value=100.0, value=10.0, step=1.0
-            )
-            st.caption(
-                "For a what-if scenario, select the affected buildings above. Other buildings remain in the campus total."
-            )
-            run = st.form_submit_button("Run verified calculation")
+            month, old, new, reduction = "All months", None, None, 10.0
+            if operation == "Period comparison":
+                a, b = st.columns(2)
+                old = a.selectbox(
+                    "Old period", dataset.months, index=max(0, len(dataset.months) - 2)
+                )
+                new = b.selectbox("New period", dataset.months, index=len(dataset.months) - 1)
+            elif operation != "Monthly trend":
+                month = st.selectbox("Month", ["All months", *dataset.months])
+            if operation == "What-if reduction":
+                reduction = st.number_input(
+                    "What-if reduction (%)", min_value=0.0, max_value=100.0, value=10.0, step=1.0
+                )
+                st.caption(
+                    "Select the buildings that would reduce usage. Other buildings stay in the campus total."
+                )
+            if operation == "Usage per student":
+                st.caption(
+                    "Requires a student count for each selected building and month. Missing counts are flagged, never guessed."
+                )
+            run = st.form_submit_button("Run verified calculation", type="primary")
         if run:
             started = perf_counter()
             filters = []
@@ -305,13 +311,21 @@ def render_overview(dataset) -> None:
     cols[1].metric("Buildings", summary["buildings"])
     cols[2].metric("Months covered", summary["months"])
     cols[3].metric("Highest building", summary["highest"])
+    if summary["highest_value"] is not None:
+        cols[3].caption(f"{summary['highest_value']:,.0f} kWh across the selected dataset")
     st.caption(
         f"{period_label(dataset.months[0])} – {period_label(dataset.months[-1])} · {len(dataset.frame)} readings. Highest building is based on total observed usage across this period."
     )
     chart = build_chart(summary["trend"])
     if chart is not None:
-        chart.update_layout(height=250, margin={"l": 10, "r": 10, "t": 40, "b": 35})
-        st.plotly_chart(chart, width="stretch", key=f"overview_{st.session_state.generation}")
+        chart.update_layout(height=290, margin={"l": 10, "r": 30, "t": 55, "b": 35})
+        with st.container(border=True):
+            st.plotly_chart(
+                chart,
+                width="stretch",
+                key=f"overview_{st.session_state.generation}",
+                config={"displayModeBar": False},
+            )
     for warning in dataset.warnings:
         if warning.severity == "warning":
             st.warning(warning.message, icon="⚠️")
@@ -328,27 +342,28 @@ def render_overview(dataset) -> None:
                 icon="⚠️",
             )
         st.dataframe(flags, hide_index=True, width="stretch")
-    st.caption(
-        "Flag rule: deviation from the building’s prior median change exceeds both 20 percentage points and three scaled median absolute deviations. Flags are prompts to investigate, not proof of waste."
-    )
+    with st.expander("How unusual changes are flagged"):
+        st.caption(
+            "Flag rule: deviation from the building’s prior median change exceeds both 20 percentage points and three scaled median absolute deviations. Flags are prompts to investigate, not proof of waste."
+        )
 
 
 def render_result(entry: dict, index: int, dataset, can_ask: bool):
     pending = None
     with st.chat_message("user"):
         st.text(entry["question"])
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="📊"):
         ai = entry["mode"].startswith("Gemma")
         st.caption(f"{entry['mode']} · Response time: {entry.get('elapsed', 0):.2f}s")
         if "error" in entry:
             st.error(entry["error"])
             return None
         result = entry["result"]
-        st.text(describe_plan(result, ai))
+        st.caption(describe_plan(result, ai))
         if result.status != "ok":
             st.warning(result.answer, icon="⚠️")
         else:
-            st.text(result.answer)
+            styled_text(result.answer, "answer")
             if result.plan.intent in {"period_comparison", "scenario"}:
                 cols = st.columns(4)
                 cols[0].metric(
@@ -388,7 +403,7 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 )
         st.markdown("**How this was calculated**")
         for line in calculation_lines(result):
-            st.text(line)
+            styled_text(line, "formula")
         if not result.values.empty:
             st.dataframe(
                 result.values.rename(
@@ -417,7 +432,7 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 )
                 st.text(explanation.meaning)
                 for check in explanation.checks:
-                    st.text(check)
+                    st.text("• " + check)
                 st.caption("Possible checks, not established causes.")
         if entry.get("explanation_error"):
             st.warning(entry["explanation_error"], icon="⚠️")
@@ -457,7 +472,17 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 )
         if entry.get("report_error"):
             st.warning(entry["report_error"])
-        left, right = st.columns(2)
+        if "report" in entry and "picture" not in entry and "picture_error" not in entry:
+            try:
+                entry["picture"] = report_png(entry["report"])
+            except (RuntimeError, ValueError, MemoryError):
+                entry["picture_error"] = (
+                    "The image could not be prepared. The PDF and CSV are still available."
+                )
+        if entry.get("picture_error"):
+            st.warning(entry["picture_error"])
+        styled_text("Save this answer", "eyebrow")
+        left, picture, right = st.columns(3)
         left.download_button(
             "Download this answer · PDF",
             entry.get("report", b""),
@@ -465,6 +490,9 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
             "application/pdf",
             key=f"report_{st.session_state.generation}_{index}",
             disabled="report" not in entry,
+            width="stretch",
+            on_click="ignore",
+            wrap=True,
         )
         right.download_button(
             "Download source data · CSV",
@@ -472,6 +500,20 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
             "campuspulse_evidence.csv",
             "text/csv",
             key=f"export_{st.session_state.generation}_{index}",
+            width="stretch",
+            on_click="ignore",
+            wrap=True,
+        )
+        picture.download_button(
+            "Save answer as image · PNG",
+            entry.get("picture", b""),
+            "campuspulse_answer.png",
+            "image/png",
+            key=f"picture_{st.session_state.generation}_{index}",
+            disabled="picture" not in entry,
+            width="stretch",
+            on_click="ignore",
+            wrap=True,
         )
         st.caption("Ask a follow-up" if can_ask else "Connect Gemma to ask these follow-ups")
         for i, (column, question) in enumerate(
@@ -482,6 +524,7 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 key=f"followup_{st.session_state.generation}_{index}_{i}",
                 disabled=not can_ask,
                 width="stretch",
+                wrap=True,
             ):
                 pending = (question, result.plan)
     return pending
@@ -491,8 +534,9 @@ def upload_panel(settings):
     with st.container(border=True):
         left, right = st.columns([2, 1])
         with left:
+            st.subheader("Add your campus report")
             st.caption(
-                f"Drop a searchable PDF table or CSV here · up to {min(settings.max_upload_mb, 10)} MB"
+                f"A PDF table or CSV with building, month and electricity use · up to {min(settings.max_upload_mb, 10)} MB"
             )
             uploaded = st.file_uploader(
                 "Choose a PDF or CSV",
@@ -514,13 +558,17 @@ def upload_panel(settings):
                     st.session_state.pop("upload_error", None)
                     try:
                         load_data(data, uploaded.name, settings, separator)
+                        st.rerun()
                     except DataError as exc:
                         st.session_state.upload_error = str(exc)
             if st.session_state.get("upload_error"):
                 st.error(st.session_state.upload_error)
         with right:
-            st.markdown("**Just exploring? Start here.**")
-            st.caption("Try the same fictional campus report in either format.")
+            styled_text("Try it first", "eyebrow")
+            st.markdown("**See what your campus data can tell you.**")
+            st.caption(
+                "Explore 5 buildings across 6 months with a fictional campus report. No file needed."
+            )
             for suffix, label in [("pdf", "Load synthetic PDF"), ("csv", "Load synthetic CSV")]:
                 if st.button(
                     label, width="stretch", type="primary" if suffix == "pdf" else "secondary"
@@ -582,8 +630,12 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
 
 def main() -> None:
     st.set_page_config(
-        page_title="CampusPulse · Understand your campus", page_icon="◉", layout="wide"
+        page_title="CampusPulse · Understand your campus",
+        page_icon="◉",
+        layout="wide",
+        initial_sidebar_state="collapsed",
     )
+    st.markdown(CSS, unsafe_allow_html=True)
     try:
         settings = Settings.from_env()
     except (ValueError, KeyError) as exc:
@@ -596,45 +648,68 @@ def main() -> None:
     if "model_status" not in st.session_state:
         st.session_state.model_status = client.check()
     status = st.session_state.model_status
-    with st.sidebar:
-        st.subheader("Gemma connection")
-        st.text(settings.ollama_model)
-        st.caption(settings.endpoint_kind)
-        if status.ready:
-            st.success("Ready for questions")
-        else:
-            st.warning("Gemma is not connected")
-        st.caption(status.message)
-        if st.button("Check model connection"):
-            st.session_state.model_status = client.check()
-            st.rerun()
-        with st.expander("Connection help"):
-            st.code(
-                f"ollama serve\nollama pull {settings.ollama_model}\nollama list", language="bash"
-            )
-            st.caption(
-                "Verify the model tag before downloading. Model configuration is in .env; restart after changes."
-            )
-        st.caption("Hacktoberfest Hackday 2026 · PS 03")
-    st.title("CampusPulse")
-    st.write("Understand your campus. See the numbers. Follow the evidence.")
-    st.caption(
-        "Community & Environmental Data Intelligence · Examples are synthetic, with no official IIMT University data or endorsement."
-    )
-    with st.expander("1. Upload your report", expanded="dataset" not in st.session_state):
-        upload_panel(settings)
-    if st.session_state.get("source_name") and st.button("Clear dataset and chat"):
-        clear_data()
-        st.session_state.upload_epoch += 1
-        st.session_state.pop("processed_upload", None)
-        st.session_state.pop("upload_error", None)
-        st.rerun()
-    if not st.session_state.get("tables"):
-        st.info(
-            "Start with a report above. We’ll show a quick overview before you ask your first question."
+    header, connection = st.columns([4, 1], vertical_alignment="center")
+    with header:
+        styled_text("Campus energy, made clear", "eyebrow")
+        st.title("CampusPulse")
+        styled_text("Turn your electricity report into answers you can explain.", "lead")
+    with connection:
+        st.badge(
+            "Gemma connected" if status.ready else "Gemma offline",
+            color="green" if status.ready else "orange",
         )
+        with st.popover("Connection settings", width="stretch"):
+            st.caption(status.message)
+            st.text(settings.ollama_model)
+            st.caption(settings.endpoint_kind)
+            with st.expander("How to connect Gemma"):
+                st.code(
+                    f"ollama serve\nollama pull {settings.ollama_model}\nollama list",
+                    language="bash",
+                )
+                st.caption(
+                    "Verify the official model tag before downloading. Set the endpoint and model in .env, then restart the app."
+                )
+            if st.button("Refresh connection"):
+                st.session_state.model_status = client.check()
+                st.rerun()
+    stage = 2 if "dataset" in st.session_state else 1 if st.session_state.get("tables") else 0
+    progress_steps(stage)
+    if st.session_state.get("source_name"):
+        with st.container(border=True):
+            file_info, file_action = st.columns([4, 1], vertical_alignment="center")
+            with file_info:
+                styled_text(st.session_state.source_name, "file")
+                st.caption(
+                    f"{st.session_state.source_size / 1024:.1f} KB · {len(st.session_state.tables)} table(s) · "
+                    + ("Confirmed and ready to explore" if stage == 2 else "Ready for your review")
+                )
+            if file_action.button("Use another file", width="stretch"):
+                clear_data()
+                st.session_state.upload_epoch += 1
+                st.session_state.pop("processed_upload", None)
+                st.session_state.pop("upload_error", None)
+                st.rerun()
+        with st.expander("Upload or try another sample"):
+            upload_panel(settings)
+    else:
+        upload_panel(settings)
+    if not st.session_state.get("tables"):
+        for column, title, body in zip(
+            st.columns(3),
+            ["See the big picture", "Ask in your own words", "Follow every number"],
+            [
+                "Totals, trends and unusual changes, before your first question.",
+                "Compare buildings, explore usage per student, or try a what-if scenario.",
+                "Clear calculations, original source rows and a report you can share.",
+            ],
+            strict=True,
+        ):
+            with column:
+                styled_text(title, "eyebrow")
+                styled_text(body, "help")
         st.caption(
-            "Searchable table PDFs and UTF-8 CSVs are supported. Scanned reports need OCR first. Uploads remain in this app session; on a cloud host, processing takes place on that server."
+            "Searchable PDFs and UTF-8 CSVs supported. Scanned reports need OCR first. Files are processed in this app session on the hosting server. Demo data is fictional, with no official university endorsement."
         )
         return
     with st.expander("2. Check your data", expanded="dataset" not in st.session_state):
@@ -644,7 +719,7 @@ def main() -> None:
         return
     render_overview(dataset)
     st.divider()
-    st.subheader("3. Ask CampusPulse")
+    st.subheader("What would you like to know?")
     st.caption(
         "Ask in English, Hindi or Hinglish. You can follow up with “and in May?” or “what about hostels only?”"
     )
@@ -661,22 +736,32 @@ def main() -> None:
             "Gemma runs at an endpoint local to the app server. In cloud hosting this is not your own device. It receives schema, question context and computed summaries; raw reports stay in the app."
         )
     can_ask = status.ready and (settings.endpoint_kind != "Remote" or allow_remote)
+    if not status.ready:
+        st.info(
+            "Connect Gemma to ask questions in your own words. You can explore now with ‘Choose a calculation’ below.",
+            icon="💡",
+        )
     question = None
     previous_plan = next(
         (e["result"].plan for e in reversed(st.session_state.history) if "result" in e), None
     )
     questions = suggested_questions(dataset)
-    for offset in range(0, len(questions), 3):
-        for i, (column, suggestion) in enumerate(
-            zip(st.columns(3), questions[offset : offset + 3])
-        ):
-            if column.button(
-                suggestion, key=f"suggestion_{offset + i}", disabled=not can_ask, width="stretch"
+    with st.container(key="question_suggestions"):
+        for offset in range(0, len(questions), 3):
+            for i, (column, suggestion) in enumerate(
+                zip(st.columns(3), questions[offset : offset + 3])
             ):
-                question = suggestion
-                previous_plan = None
+                if column.button(
+                    suggestion,
+                    key=f"suggestion_{offset + i}",
+                    disabled=not can_ask,
+                    width="stretch",
+                    wrap=True,
+                ):
+                    question = suggestion
+                    previous_plan = None
     manual_analysis(dataset)
-    if st.button("Clear question history"):
+    if st.session_state.history and st.button("Clear question history"):
         st.session_state.history = []
         previous_plan = None
     for index, entry in enumerate(st.session_state.history):
