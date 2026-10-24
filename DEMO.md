@@ -18,7 +18,7 @@ Show the core fields, optional student counts, kWh units and page/table/row refe
 
 ## 1:15–2:00 · Ranking
 
-Ask: **Which building consumed the most electricity in June 2026?**
+Type: **Which building consumed the most electricity in June 2026?** Preset buttons are deliberately labelled no AI; use the chat input to demonstrate Gemma planning.
 
 Expected: **Boys Hostel, 6,200 kWh**.
 
@@ -88,7 +88,7 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 | Ollama disconnected | Start/install Ollama, check `OLLAMA_HOST`, run `python -m scripts.check_model`. |
 | Model absent | Verify an official Gemma 4 tag, explicitly pull it, set `OLLAMA_MODEL`, restart the app. |
 | Catalog blocked | Allow official catalog/registry destinations in environment settings; retry verification. |
-| Timeout | Check server load and RAM/VRAM; choose a supported small tag or increase timeout. |
+| Timeout | Use a quick calculation; inspect `ollama ps` and the model phase timings before changing budgets. |
 | Invalid model plan | Rephrase with explicit metric/building/month. Do not pretend a backup is AI. |
 | Unsupported PDF | Use a searchable grid table or CSV; OCR/cross-page merging is not included. |
 | Validation error | Correct mapping, units, periods, missing labels or duplicate building/month records. |
@@ -102,6 +102,6 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 - Ask **Compare kWh per student in June 2026.** Expected: Academic Block A **7**, Academic Block B **5.1666…**, Boys Hostel **15.5**, Girls Hostel **15.7142… kWh/student**. The visible warning says **Library: no occupancy data for one or more selected months, can’t compare.** The missing value is never filled with zero. Multiple months instead use student-months, explicitly labelled.
 - Follow the June ranking with **and in May?** Expected Boys Hostel **5,800 kWh**. Click **What about hostels only?** on an answer to scope its own plan. Real language interpretation requires a connected Gemma; offline tests mock that part explicitly.
 - Ask **What if the hostels cut usage by 10% in June 2026?** Hostels total **11,700 kWh**; saving **1,170 kWh**; campus total **21,950 − 1,170 = 20,780 kWh**, a **5.33%** campus reduction. The requested 10% applies only to the hostels, not the whole campus. The chart and caveat identify this as conditional.
-- Show the **What this means / what could be checked** box. Gemma supplies prose using verified fact references; unverified numerical claims cause a visible fallback. Hindi questions request Hindi explanatory prose. Suggested checks are not established causes.
+- Show the **What this means / what could be checked** box, then click **Explain with Gemma · optional**. The initial answer is already calculated; Gemma supplies prose using verified fact references only when requested. Unverified numerical claims cause a visible fallback. Hindi questions request Hindi explanatory prose. Suggested checks are not established causes.
 - Download the one-page PDF, a PNG of the same report, or source CSV directly beneath an answer.
 - The bundled smooth series has no anomaly flags. The automated spike fixture proves detection without fabricating an anomaly in the sample; the UI always states “cause unknown” for flags. A flag needs at least three prior valid monthly changes.

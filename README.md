@@ -32,8 +32,8 @@ Campus resource reports often hide missing observations, unfair comparisons and 
 - English, Hindi and Hinglish planning prompts with constrained JSON; real language quality needs live validation.
 - Visible plain-language working and caveats beneath every answer; no user-facing JSON. Rankings highlight winners, comparisons show grouped building bars and change cards, and trends mark high/low months.
 - Student-normalized usage with missing-denominator exclusions, history-based anomaly flags and conditional what-if savings.
-- Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation/explanation stages and measured response time stay visible.
-- Guarded Gemma explanations, with Hindi prose for Hindi questions, plus a one-click PDF or PNG answer report and spreadsheet-safe evidence CSV. The image contains the same chart, working and caveats as the PDF.
+- Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation stages and measured response time stay visible. Preset buttons run explicit calculations without AI, including the month with highest usage.
+- Guarded Gemma explanations are optional: the calculated answer appears first, then **Explain with Gemma · optional** requests prose (Hindi for Hindi questions). PDF/PNG reports and spreadsheet-safe evidence CSV remain available without that extra call.
 - Exact model status, local/remote disclosure and remote-processing consent.
 - Clearly labelled manual mode for disconnected development, without fake AI answers. Controls adapt to the selected analysis; comparison periods and what-if percentages appear only when needed.
 
@@ -102,16 +102,23 @@ ollama list
 python -m scripts.check_model
 ```
 
-Model downloads can be multiple gigabytes. The application never downloads them automatically. Configure the exact installed official `gemma4:<tag>`; larger variants are configurable, with their own hardware requirements. No other family is silently substituted.
+Model downloads can be multiple gigabytes. The application never downloads them automatically. Configure the exact installed tag. Gemma, Gemma 2, Gemma 3/3n and Gemma 4 tags are accepted when explicitly selected, with no silent substitution. **Gemma 4 is still required for the hackathon demonstration**; selecting `gemma2:2b` for local experimentation does not satisfy that requirement. Compatibility with the client is not a claim of verified live language quality.
 
 ```dotenv
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=gemma4:e2b
-OLLAMA_TIMEOUT_SECONDS=90
+OLLAMA_TIMEOUT_SECONDS=45
+OLLAMA_NUM_PREDICT=512
 APP_TIMEZONE=Asia/Kolkata
 ```
 
-Restart Streamlit after changing `.env`. Press **Check model connection**. An available model is not proof of inference: ask a question or run the live integration tests to demonstrate actual Gemma use.
+Restart Streamlit after changing `.env`. Open **Connection settings → Refresh connection**. An available model is not proof of inference: type a question or run the live integration tests to demonstrate actual Gemma use. Preset buttons intentionally do not call the model.
+
+For slow laptops, start with the quick calculations. Typed questions make one planning call; explanations require a separate click. The default output budget is 512 tokens for a plan and at most 256 for an explanation, with a 45-second read timeout and a 10-minute model keep-alive. Existing `.env` timeout values take precedence, so update them explicitly. Smaller budgets reduce generated work but can cut short complex requests; such responses are rejected without an automatic retry. These settings do not guarantee a particular hardware speed.
+
+Run `ollama ps` on the laptop while a request is active to inspect CPU/GPU use. Answers display Ollama's model-loading, prompt-processing and generation durations when available. A long model-load phase suggests cold starts; generation speed depends on hardware and model size. No GPU throughput was measured in this cloud checkout.
+
+“In which month the elctricity bill was higest” is checked before inference when the file has no cost column: the app explains that bill amounts are missing. For the synthetic sample, **Month with highest electricity use** returns June 2026, **21,950 kWh**. That is consumption, not a rupee bill.
 
 Remote Ollama is supported through `OLLAMA_HOST`. Use a trusted, secured endpoint; the app requires consent before transmitting questions/schema to a remote server. It does not implement hosted-provider authentication adapters, and the inference client does not inherit ambient HTTP proxy settings. Configure an endpoint it can reach directly.
 

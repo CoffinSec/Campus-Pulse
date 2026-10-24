@@ -19,7 +19,8 @@ def _integer(name: str, default: int, low: int, high: int) -> int:
 class Settings:
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "gemma4:e2b"
-    ollama_timeout: int = 90
+    ollama_timeout: int = 45
+    ollama_num_predict: int = 512
     max_upload_mb: int = 10
     max_pdf_pages: int = 30
     max_tables: int = 30
@@ -54,7 +55,8 @@ class Settings:
         return cls(
             ollama_host=host,
             ollama_model=os.getenv("OLLAMA_MODEL", cls.ollama_model),
-            ollama_timeout=_integer("OLLAMA_TIMEOUT_SECONDS", 90, 1, 300),
+            ollama_timeout=_integer("OLLAMA_TIMEOUT_SECONDS", 45, 1, 300),
+            ollama_num_predict=_integer("OLLAMA_NUM_PREDICT", 512, 128, 4096),
             max_upload_mb=_integer("MAX_UPLOAD_MB", 10, 1, 50),
             max_pdf_pages=_integer("MAX_PDF_PAGES", 30, 1, 100),
             max_tables=_integer("MAX_TABLES", 30, 1, 100),

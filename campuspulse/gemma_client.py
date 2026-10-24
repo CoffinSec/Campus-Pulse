@@ -1,6 +1,7 @@
 """Official Ollama client, exact model availability and constrained JSON."""
 
 import logging
+import re
 from dataclasses import dataclass
 
 import httpx
@@ -23,6 +24,7 @@ class ModelStatus:
 class GemmaClient:
     def __init__(self, settings: Settings, client=None):
         self.settings = settings
+        self.last_timings = {}
         self.client = client or ollama.Client(
             host=settings.ollama_host,
             timeout=httpx.Timeout(settings.ollama_timeout, connect=4.0),
@@ -38,10 +40,10 @@ class GemmaClient:
         def status(ready, message):
             return ModelStatus(ready, message, model, self.settings.endpoint_kind)
 
-        if not model.startswith("gemma4:"):
+        if not re.fullmatch(r"gemma(?:2|3|3n|4)?:[^\s]+", model):
             return status(
                 False,
-                "Configure an explicit official Gemma 4 tag, such as the candidate gemma4:e2b. No substitute model is used.",
+                "Configure an explicit Gemma model tag installed in Ollama. No substitute model is used.",
             )
         try:
             response = self.status_client.list()
@@ -57,7 +59,12 @@ class GemmaClient:
                 )
             return status(
                 True,
-                "Connected; configured model is installed. Live inference is confirmed only after a successful question.",
+                "Connected; configured model is installed. Live inference is confirmed only after a successful question."
+                + (
+                    " This model is not Gemma 4 and does not meet the Gemma 4 demo requirement."
+                    if not model.startswith("gemma4:")
+                    else ""
+                ),
             )
         except (httpx.TimeoutException, TimeoutError):
             return status(
@@ -77,9 +84,12 @@ class GemmaClient:
         return self._structured_json(system, payload, AnalysisPlan.model_json_schema())
 
     def explanation_json(self, system: str, payload: str, schema: dict) -> str:
-        return self._structured_json(system, payload, schema)
+        return self._structured_json(
+            system, payload, schema, min(256, self.settings.ollama_num_predict)
+        )
 
-    def _structured_json(self, system: str, payload: str, schema: dict) -> str:
+    def _structured_json(self, system: str, payload: str, schema: dict, tokens=None) -> str:
+        self.last_timings = {}
         status = self.check()
         if not status.ready:
             raise AIError(status.message)
@@ -91,9 +101,29 @@ class GemmaClient:
                     {"role": "user", "content": payload},
                 ],
                 format=schema,
-                options={"temperature": 0, "num_predict": 1800},
+                options={
+                    "temperature": 0,
+                    "num_predict": tokens or self.settings.ollama_num_predict,
+                },
+                keep_alive="10m",
                 stream=False,
             )
+
+            def field(name):
+                return (
+                    response.get(name)
+                    if isinstance(response, dict)
+                    else getattr(response, name, None)
+                )
+
+            for key in ["load_duration", "prompt_eval_duration", "eval_duration"]:
+                value = field(key)
+                if isinstance(value, (float, int)) and value >= 0:
+                    self.last_timings[key] = value / 1_000_000_000
+            if field("done_reason") == "length":
+                raise AIError(
+                    "Gemma's reply was cut short. Choose a quick calculation, or ask a shorter question with one metric and period."
+                )
             content = (
                 response.message.content
                 if hasattr(response, "message")
@@ -106,7 +136,7 @@ class GemmaClient:
             return content
         except (httpx.TimeoutException, TimeoutError) as exc:
             raise AIError(
-                "Gemma timed out. Try a shorter question, wait for the model to load or increase OLLAMA_TIMEOUT_SECONDS."
+                "Gemma timed out. Use a quick calculation now. If this keeps happening, check whether Ollama is using the GPU with ollama ps."
             ) from exc
         except (ConnectionError, httpx.HTTPError, ollama.ResponseError) as exc:
             logger.warning("Ollama request failed: %s", type(exc).__name__)

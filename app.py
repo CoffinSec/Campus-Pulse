@@ -25,7 +25,8 @@ from campuspulse.presentation import (
     followup_questions,
     period_label,
 )
-from campuspulse.question_planner import plan_question, suggested_questions
+from campuspulse.question_planner import plan_question, preflight_plan
+from campuspulse.quick_analysis import quick_questions
 from campuspulse.reporting import answer_pdf, report_png
 from campuspulse.ui import CSS, progress_steps, styled_text
 from campuspulse.visualization import build_chart
@@ -348,13 +349,26 @@ def render_overview(dataset) -> None:
         )
 
 
-def render_result(entry: dict, index: int, dataset, can_ask: bool):
+def render_result(entry: dict, index: int, dataset, can_ask: bool, settings, client, allow_remote):
     pending = None
     with st.chat_message("user"):
         st.text(entry["question"])
     with st.chat_message("assistant", avatar="📊"):
         ai = entry["mode"].startswith("Gemma")
         st.caption(f"{entry['mode']} · Response time: {entry.get('elapsed', 0):.2f}s")
+        timings = entry.get("model_timings", {})
+        if timings:
+            st.caption(
+                " · ".join(
+                    f"{label}: {timings[key]:.1f}s"
+                    for key, label in [
+                        ("load_duration", "Model loading"),
+                        ("prompt_eval_duration", "Reading question"),
+                        ("eval_duration", "Generating plan"),
+                    ]
+                    if key in timings
+                )
+            )
         if "error" in entry:
             st.error(entry["error"])
             return None
@@ -436,6 +450,33 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 st.caption("Possible checks, not established causes.")
         if entry.get("explanation_error"):
             st.warning(entry["explanation_error"], icon="⚠️")
+        if (
+            result.status == "ok"
+            and not (explanation and explanation.generated)
+            and st.button(
+                "Explain with Gemma · optional",
+                key=f"explain_{st.session_state.generation}_{index}",
+                disabled=not can_ask,
+                help="Makes a separate model request. Your calculated answer is already ready.",
+            )
+        ):
+            started = perf_counter()
+            with st.spinner("Gemma is explaining the existing result…"):
+                try:
+                    entry["explanation"] = explain_result(
+                        result, entry["question"], settings, client, allow_remote
+                    )
+                    entry.pop("explanation_error", None)
+                except AIError as exc:
+                    entry["explanation_error"] = str(exc)
+            entry["explanation_elapsed"] = perf_counter() - started
+            for key in ["report", "picture", "report_error", "picture_error"]:
+                entry.pop(key, None)
+            st.rerun()
+        if "explanation_elapsed" in entry:
+            st.caption(
+                f"Optional explanation: {entry['explanation_elapsed']:.2f}s (separate from answer time)"
+            )
         with st.expander(f"Source readings · {len(result.evidence)} rows"):
             if result.evidence.empty:
                 st.info("No numerical answer was produced, so no source citation is asserted.")
@@ -594,7 +635,26 @@ def upload_panel(settings):
             )
 
 
+def run_calculation(question, plan, dataset, mode="Quick calculation · no AI"):
+    started = perf_counter()
+    result = calculate(dataset, plan)
+    st.session_state.history.append(
+        {
+            "question": question,
+            "mode": mode,
+            "result": result,
+            "elapsed": perf_counter() - started,
+            "explanation": fallback_explanation(result, language_for(question)),
+        }
+    )
+    st.session_state.history = st.session_state.history[-6:]
+    st.rerun()
+
+
 def run_question(question, previous_plan, dataset, settings, client, allow_remote):
+    guarded = preflight_plan(question, dataset)
+    if guarded is not None:
+        run_calculation(question, guarded, dataset, "Data availability check · no AI")
     started = perf_counter()
     entry = {"question": question, "mode": f"Gemma · {settings.ollama_model}"}
     with st.status("Gemma is planning…", expanded=True) as progress:
@@ -606,21 +666,16 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
             st.write("Checking the requested operation and calculating from the confirmed data.")
             result = calculate(dataset, plan)
             entry["result"] = result
+            entry["model_timings"] = dict(client.last_timings)
             if result.status == "ok":
-                progress.update(label="Gemma is explaining the verified result…")
-                try:
-                    entry["explanation"] = explain_result(
-                        result, question, settings, client, allow_remote
-                    )
-                except AIError as exc:
-                    entry["explanation_error"] = str(exc)
-                    entry["explanation"] = fallback_explanation(result, language_for(question))
+                entry["explanation"] = fallback_explanation(result, language_for(question))
             entry["elapsed"] = perf_counter() - started
             progress.update(
                 label=f"Answer ready in {entry['elapsed']:.2f}s", state="complete", expanded=False
             )
         except (AIError, PlanError, ValueError) as exc:
             entry["error"] = str(exc)
+            entry["model_timings"] = dict(client.last_timings)
             entry["elapsed"] = perf_counter() - started
             progress.update(label="This question could not be completed", state="error")
     st.session_state.history.append(entry)
@@ -745,27 +800,26 @@ def main() -> None:
     previous_plan = next(
         (e["result"].plan for e in reversed(st.session_state.history) if "result" in e), None
     )
-    questions = suggested_questions(dataset)
+    questions = quick_questions(dataset)
+    st.caption("Quick calculations · no AI wait. Type your own question below to use Gemma.")
     with st.container(key="question_suggestions"):
         for offset in range(0, len(questions), 3):
-            for i, (column, suggestion) in enumerate(
+            for i, (column, (suggestion, preset)) in enumerate(
                 zip(st.columns(3), questions[offset : offset + 3])
             ):
                 if column.button(
                     suggestion,
                     key=f"suggestion_{offset + i}",
-                    disabled=not can_ask,
                     width="stretch",
                     wrap=True,
                 ):
-                    question = suggestion
-                    previous_plan = None
+                    run_calculation(suggestion, preset, dataset)
     manual_analysis(dataset)
     if st.session_state.history and st.button("Clear question history"):
         st.session_state.history = []
         previous_plan = None
     for index, entry in enumerate(st.session_state.history):
-        pending = render_result(entry, index, dataset, can_ask)
+        pending = render_result(entry, index, dataset, can_ask, settings, client, allow_remote)
         if pending:
             question, previous_plan = pending
     typed = st.chat_input(

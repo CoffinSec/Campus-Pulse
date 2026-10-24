@@ -4,7 +4,7 @@ Validated in the cloud checkout using Python 3.12.14. This records actual execut
 
 | Check | Observed result |
 |---|---|
-| `python -m pytest -q` | **151 passed, 11 skipped**; skipped cases require opt-in live Gemma inference |
+| `python -m pytest -q` | **158 passed, 11 skipped**; skipped cases require opt-in live Gemma inference |
 | `python -m scripts.smoke_test` | Passed: real PDF and CSV ingestion, normalization, ranking, comparison, trend, missing cost, charts and evidence |
 | `python -m ruff check .` | Passed |
 | `python -m ruff format --check .` | Passed |
@@ -30,6 +30,15 @@ Compared the supplied `Campus-Pulse-updated.zip` with the existing application a
 - PNG tests check the file signature and page aspect ratio against the PDF. The real browser download also returned valid PNG bytes. No new dependency or live inference is required for the UI or export changes.
 
 The [landing screenshot](docs/screenshots/landing.png) is from the actual browser run. Mobile checks emulate viewport dimensions; they do not claim testing on a physical phone.
+
+### Slow-answer and missing-bill regression checked on 24 October 2026
+
+- The exact reported question, “In which month the elctricity bill was higest”, is exercised in planner and AppTest regressions. With the sample it reports missing bill amounts and makes **zero planning or explanation calls**. When a cost column exists, the planner is still used.
+- Preset buttons now calculate directly, even with Gemma disconnected. The highest-usage-month preset returns **June 2026, 21,950 kWh** and is labelled no AI. It does not claim a bill amount.
+- Mocked chat integration verifies that the first answer does not call the explanation model; a separate explicit click does. Follow-up context and failed-explanation preservation still pass.
+- Mocked transport tests check the 512-token output budget, keep-alive, exact `gemma2:2b` selection, rejection of truncated replies without retries, and conversion of Ollama timing fields. Valid fenced JSON is accepted; malformed or unsafe content still fails validation.
+- Full suite: **158 passed, 11 live tests skipped**. No laptop inference benchmark or guaranteed model speedup is claimed. The reported 176-second delay cannot be attributed to a specific hardware bottleneck from the screenshot alone.
+- Real Chromium with Ollama disconnected verified both preset buttons and the missing-bill notice, with no page errors or JSON display. One cloud run measured **1.44 seconds from clicking the highest-month preset to its visible answer**, including UI processing. This is a preset/UI measurement, not an AI or laptop benchmark.
 
 ## Actual sample results
 

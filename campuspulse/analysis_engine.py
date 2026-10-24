@@ -60,7 +60,7 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
     if plan.metric not in frame:
         message = f"The dataset does not contain {plan.metric}."
         if plan.metric == "electricity_cost_inr":
-            message += " Cost requires recorded cost values or a validated tariff calculation; consumption alone is insufficient."
+            message = "This report has no electricity bill amounts (INR). Electricity use in kWh cannot tell us which bill was highest. Add recorded bill amounts to compare costs, or choose ‘Month with highest electricity use’ to compare kWh."
         return unavailable(message)
     for item in plan.filters:
         values = item.value if isinstance(item.value, list) else [item.value]
