@@ -139,6 +139,7 @@ class Dataset:
     columns: list[ColumnDefinition]
     classification: str
     warnings: list[Caveat] = field(default_factory=list)
+    custom_tariff_inr_per_kwh: float | None = None
 
     @property
     def months(self) -> list[str]:

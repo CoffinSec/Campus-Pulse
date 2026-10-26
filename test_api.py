@@ -1,4 +1,5 @@
 import os
+
 import httpx
 from dotenv import load_dotenv
 
@@ -35,5 +36,5 @@ for m in all_models:
             break
         else:
             print(f"HTTP {res.status_code} ({res.json().get('error', {}).get('message', '')[:60]})")
-    except Exception as e:
+    except (httpx.HTTPError, ValueError) as e:
         print(f"Error: {e}")

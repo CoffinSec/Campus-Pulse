@@ -10,6 +10,7 @@ def evidence_table(result: CalculationResult) -> pd.DataFrame:
     frame = result.evidence
     if frame.empty:
         return frame.copy()
+    is_estimate = any(w.code == "estimated_electricity_cost" for w in result.warnings)
     cols = [
         *PROVENANCE,
         *result.plan.group_by,
@@ -17,8 +18,17 @@ def evidence_table(result: CalculationResult) -> pd.DataFrame:
         "building_name",
         "month",
         result.plan.metric,
+        *(
+            ["electricity_kwh", "tariff_inr_per_kwh", "raw_electricity_kwh"]
+            if result.plan.metric == "electricity_cost_inr" and is_estimate
+            else []
+        ),
         *(["occupancy", "raw_occupancy"] if result.plan.intent == "per_student" else []),
-        f"raw_{result.plan.metric}",
+        *(
+            []
+            if result.plan.metric == "electricity_cost_inr" and is_estimate
+            else [f"raw_{result.plan.metric}"]
+        ),
         "raw_month",
     ]
     return frame.loc[:, list(dict.fromkeys(c for c in cols if c in frame))].copy()

@@ -36,6 +36,12 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
     trace = [
         f"Metric: {plan.metric}; aggregation: {plan.aggregation}; average basis: {plan.average_basis}."
     ]
+    if plan.metric == "electricity_cost_inr" and dataset.custom_tariff_inr_per_kwh is not None:
+        trace.append(
+            f"Estimated cost (not a utility bill): each observed kWh reading × "
+            f"₹{dataset.custom_tariff_inr_per_kwh:,.2f}/kWh. "
+            "Missing kWh stay missing; fixed charges, taxes and slabs excluded."
+        )
 
     def unavailable(message: str, status: str = "unavailable") -> CalculationResult:
         return CalculationResult(

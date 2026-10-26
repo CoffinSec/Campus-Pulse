@@ -1,6 +1,7 @@
 """Check the configured Gemma model and run an instant test query."""
 
 from campuspulse.config import Settings
+from campuspulse.models import AIError
 from campuspulse.gemma_client import GemmaClient
 
 
@@ -17,13 +18,13 @@ def main() -> int:
 
     print("\nTesting live question planning...")
     try:
-        reply = client.plan_json(
+        client.plan_json(
             "You are a planner. Return JSON matching schema.",
             '{"question": "test"}',
         )
         print("✅ SUCCESS: Live model response received and verified!")
         return 0
-    except Exception as exc:
+    except (AIError, OSError, ValueError) as exc:
         print(f"\n❌ Error during test: {exc}")
         return 1
 

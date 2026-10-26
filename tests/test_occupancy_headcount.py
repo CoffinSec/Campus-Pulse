@@ -3,10 +3,10 @@
 import pandas as pd
 import pytest
 
-from conftest import dataset_from_csv
 from campuspulse.analysis_engine import calculate
 from campuspulse.models import AnalysisPlan, Filter
 from campuspulse.presentation import calculation_lines
+from conftest import dataset_from_csv
 
 
 def make_plan(intent="group_comparison", aggregation="sum", group_by=None, filters=None):

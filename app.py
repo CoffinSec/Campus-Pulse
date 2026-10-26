@@ -18,7 +18,13 @@ from campuspulse.gemma_client import GemmaClient
 from campuspulse.ingestion import ingest
 from campuspulse.insights import anomaly_flags, overview
 from campuspulse.models import AIError, AnalysisPlan, DataError, Filter, PlanError
-from campuspulse.normalization import ALIASES, SYNTHETIC, normalize, suggest_mapping
+from campuspulse.normalization import (
+    ALIASES,
+    SYNTHETIC,
+    apply_custom_tariff,
+    normalize,
+    suggest_mapping,
+)
 from campuspulse.presentation import (
     calculation_lines,
     describe_plan,
@@ -46,6 +52,9 @@ def clear_data() -> None:
         "classification",
         "overview",
         "anomalies",
+        "base_dataset",
+        "active_cost_mode",
+        "active_cost_rate",
     ]:
         st.session_state.pop(key, None)
     st.session_state.history = []
@@ -111,6 +120,32 @@ def review_data() -> None:
         st.info(warning.message)
     columns = [c for c in table.frame if c not in PROVENANCE]
     suggestions = suggest_mapping(columns)
+    # Outside the form so selecting Other reveals the rate box immediately.
+    rate_choice = "Other — enter a custom ₹/kWh rate"
+    cost_options = ["— Select —", rate_choice, *columns]
+    suggested_cost = suggestions.get("electricity_cost_inr", "— Select —")
+    cost_choice = st.selectbox(
+        "Electricity cost (INR)",
+        cost_options,
+        index=cost_options.index(suggested_cost),
+        key=f"cost_choice_{generation}_{selected}",
+        help="Select an existing cost column or Other to estimate cost from kWh using one rate for the entire dataset.",
+    )
+    custom_rate = None
+    if cost_choice == rate_choice:
+        custom_rate = st.number_input(
+            "Electricity rate for ALL buildings and months (₹ per kWh)",
+            min_value=0.0,
+            max_value=1_000_000.0,
+            value=10.0,
+            step=0.5,
+            format="%.2f",
+            key=f"initial_cost_rate_{generation}_{selected}",
+        )
+        st.caption(
+            "Estimated INR cost = recorded kWh × this rate, for every row. "
+            "This is not a real bill (fixed charges, taxes and slab rates excluded)."
+        )
     with st.form(f"schema_{generation}_{selected}"):
         st.markdown("**Match your columns**")
         mapping = {}
@@ -131,9 +166,14 @@ def review_data() -> None:
             )
             if choice != options[0]:
                 mapping[target] = choice
+        if cost_choice not in {"— Select —", rate_choice}:
+            mapping["electricity_cost_inr"] = cost_choice
         with st.expander("Optional columns and month-only dates"):
             for target in ALIASES:
-                if target in {"building_name", "month", "electricity_kwh", "occupancy"}:
+                if target in {"building_name", "month", "electricity_kwh", "occupancy", "electricity_cost_inr"}:
+                    continue
+                # A custom flat tariff takes priority over source tariff/cost columns.
+                if target == "tariff_inr_per_kwh" and cost_choice == rate_choice:
                     continue
                 choice = st.selectbox(
                     target.replace("_", " ").title(),
@@ -168,13 +208,66 @@ def review_data() -> None:
             st.warning("Review the mapping and check the confirmation box first.")
         else:
             try:
-                st.session_state.dataset = normalize(
-                    table, mapping, unit, classification, int(year) or None
+                base = normalize(table, mapping, unit, classification, int(year) or None)
+                st.session_state.base_dataset = base
+                st.session_state.dataset = apply_custom_tariff(base, custom_rate)
+                st.session_state.active_cost_mode = (
+                    "Other — custom rate" if custom_rate is not None
+                    else "From uploaded report"
                 )
+                if custom_rate is not None:
+                    st.session_state.active_cost_rate = float(custom_rate)
                 st.success("Dataset validated and confirmed. You can now analyze it.")
                 st.rerun()
             except DataError as exc:
                 st.error(str(exc))
+
+
+def electricity_cost_settings() -> None:
+    """Rebuild costs from confirmed source data when the global tariff changes."""
+    base = st.session_state.get("base_dataset")
+    if base is None:
+        return
+    with st.expander("Electricity cost (INR) · change global rate"):
+        mode = st.selectbox(
+            "Cost mode",
+            ["From uploaded report", "Other — custom rate"],
+            key="active_cost_mode",
+        )
+        rate = None
+        if mode == "Other — custom rate":
+            # Initialize the widget key only once. Supplying both a value=
+            # default and st.session_state["active_cost_rate"] makes Streamlit
+            # warn about conflicting defaults when a dataset is confirmed.
+            if "active_cost_rate" not in st.session_state:
+                st.session_state["active_cost_rate"] = 10.0
+            rate = st.number_input(
+                "Global electricity rate (₹ per kWh)",
+                min_value=0.0,
+                max_value=1_000_000.0,
+                step=0.5,
+                format="%.2f",
+                key="active_cost_rate",
+            )
+            st.caption("Applied to every building and month, not an actual electricity bill.")
+        if st.button("Apply electricity rate to all data", type="primary"):
+            try:
+                updated = apply_custom_tariff(base, rate)
+            except DataError as exc:
+                st.error(str(exc))
+            else:
+                st.session_state.dataset = updated
+                st.session_state.pop("overview", None)
+                st.session_state.pop("anomalies", None)
+                st.session_state.history = []  # Old cost results used the old rate.
+                st.session_state.generation += 1
+                st.rerun()
+    current = st.session_state.dataset.custom_tariff_inr_per_kwh
+    if current is not None:
+        st.caption(
+            f"Active global estimated cost rate: ₹{current:,.2f}/kWh. "
+            "All cost answers and exports use this rate."
+        )
 
 
 def manual_analysis(dataset) -> None:
@@ -195,13 +288,20 @@ def manual_analysis(dataset) -> None:
                 "Mean of monthly totals",
                 "Mean per building",
                 "Missing values",
-                "Unavailable cost",
+                "Electricity cost (INR)",
                 "Usage per student",
                 "What-if reduction",
             ],
             key=f"manual_operation_{st.session_state.generation}",
         )
         with st.form("manual_analysis"):
+            cost_available = "electricity_cost_inr" in dataset.frame
+            metric_option = st.selectbox(
+                "Calculate using",
+                ["Electricity usage (kWh)"]
+                + (["Electricity cost (INR)"] if cost_available else []),
+                help="Cost uses the rate you selected for the entire confirmed dataset.",
+            )
             buildings = sorted(dataset.frame.building_name.unique())
             selected_buildings = st.multiselect("Buildings (empty = all)", buildings)
             month, old, new, reduction = "All months", None, None, 10.0
@@ -234,7 +334,11 @@ def manual_analysis(dataset) -> None:
                 )
             if month != "All months" and operation != "Period comparison":
                 filters.append(Filter(column="month", operator="eq", value=month))
-            args = {"metric": "electricity_kwh", "aggregation": "sum", "filters": filters}
+            selected_metric = (
+                "electricity_cost_inr" if metric_option == "Electricity cost (INR)"
+                else "electricity_kwh"
+            )
+            args = {"metric": selected_metric, "aggregation": "sum", "filters": filters}
             if operation in {"Highest building", "Lowest building"}:
                 args.update(
                     intent="ranking",
@@ -249,10 +353,10 @@ def manual_analysis(dataset) -> None:
             elif operation == "Group comparison":
                 args.update(intent="group_comparison", group_by=["building_name"])
             elif operation == "Usage per student":
-                args.update(intent="per_student", aggregation="mean", group_by=["building_name"])
+                args.update(intent="per_student", metric="electricity_kwh", aggregation="mean", group_by=["building_name"])
             elif operation == "What-if reduction":
                 args.update(
-                    intent="scenario",
+                    intent="scenario", metric="electricity_kwh",
                     scenario_buildings=selected_buildings,
                     reduction_percent=reduction,
                 )
@@ -269,7 +373,7 @@ def manual_analysis(dataset) -> None:
                             "Mean per building": "building_totals",
                         }[operation],
                     )
-                if operation == "Unavailable cost":
+                if operation == "Electricity cost (INR)":
                     args.update(metric="electricity_cost_inr")
             try:
                 result = calculate(dataset, AnalysisPlan(**args))
@@ -317,6 +421,14 @@ def render_overview(dataset) -> None:
     st.caption(
         f"{period_label(dataset.months[0])} – {period_label(dataset.months[-1])} · {len(dataset.frame)} readings. Highest building is based on total observed usage across this period."
     )
+    if dataset.custom_tariff_inr_per_kwh is not None:
+        estimated_cost = dataset.frame["electricity_cost_inr"].sum(min_count=1)
+        if pd.notna(estimated_cost):
+            st.metric("Estimated electricity cost (INR)", f"₹{estimated_cost:,.2f}")
+        st.caption(
+            f"Based on a custom flat rate of ₹{dataset.custom_tariff_inr_per_kwh:,.2f}/kWh "
+            "for every building and month; excludes slabs, fixed charges and taxes."
+        )
     chart = build_chart(summary["trend"])
     if chart is not None:
         chart.update_layout(height=290, margin={"l": 10, "r": 30, "t": 55, "b": 35})
@@ -363,7 +475,7 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
             st.error(entry["error"])
             return None
         if "message" in entry:
-            st.text(entry["message"])
+            st.write(entry["message"])
             return None
         result = entry["result"]
         st.caption(describe_plan(result, ai))
@@ -408,17 +520,18 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 st.warning(
                     "The chart is unavailable. The verified values and working are shown below."
                 )
-        st.markdown("**How this was calculated**")
-        for line in calculation_lines(result):
-            styled_text(line, "formula")
-        if not result.values.empty:
-            st.dataframe(
-                result.values.rename(
-                    columns={"label": "Building / period", "value": f"Result ({result.unit})"}
-                ),
-                hide_index=True,
-                width="stretch",
-            )
+        with st.expander("Calculation breakdown & result table"):
+            st.markdown("**How this was calculated**")
+            for line in calculation_lines(result):
+                styled_text(line, "formula")
+            if not result.values.empty:
+                st.dataframe(
+                    result.values.rename(
+                        columns={"label": "Building / period", "value": f"Result ({result.unit})"}
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                )
         seen = set()
         for warning in result.warnings:
             if warning.message in seen:
@@ -444,9 +557,9 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                     if explanation.generated
                     else "Verified summary · no AI explanation"
                 )
-                st.text(explanation.meaning)
+                st.write(explanation.meaning)
                 for check in explanation.checks:
-                    st.text("• " + check)
+                    st.write("• " + check)
                 st.caption("Possible checks, not established causes.")
         if entry.get("explanation_error"):
             st.warning(entry["explanation_error"], icon="⚠️")
@@ -464,6 +577,11 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                         "building_name": "Building",
                         "month": "Month",
                         "electricity_kwh": "Electricity (kWh)",
+                        "electricity_cost_inr": (
+                            "Estimated cost (INR)" if dataset.custom_tariff_inr_per_kwh is not None
+                            else "Electricity cost (INR)"
+                        ),
+                        "tariff_inr_per_kwh": "Rate (INR/kWh)",
                         "occupancy": "Students",
                         "raw_occupancy": "Original student count",
                         "raw_electricity_kwh": "Original reading",
@@ -545,8 +663,8 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
 
 
 def upload_panel(settings):
-    with st.container(border=True):
-        left, right = st.columns([2, 1])
+    with st.container(border=True, key="upload_section"):
+        left, right = st.columns([2, 1], gap="large")
         with left:
             st.subheader("Add your campus report")
             st.caption(
@@ -651,7 +769,7 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
                     entry["explanation"] = explain_result(
                         result, question, settings, client, allow_remote=True
                     )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 - fall back if remote explanation fails
                     entry["explanation_error"] = str(exc)
                     entry["explanation"] = fallback_explanation(result, language_for(question))
             entry["elapsed"] = perf_counter() - started
@@ -687,33 +805,34 @@ def main() -> None:
     if "model_status" not in st.session_state:
         st.session_state.model_status = client.check()
     status = st.session_state.model_status
-    header, connection = st.columns([4, 1], vertical_alignment="center")
-    with header:
-        styled_text("Campus energy, made clear", "eyebrow")
-        st.title("CampusPulse")
-        styled_text("Turn your electricity report into answers you can explain.", "lead")
-    with connection:
-        st.badge(
-            "Gemma connected" if status.ready else "Gemma offline",
-            color="green" if status.ready else "orange",
-        )
-        with st.popover("Connection settings", width="stretch"):
-            st.caption(status.message)
-            st.text(f"Model: {settings.model_name}")
-            st.caption(f"Endpoint: {settings.endpoint_label}")
-            with st.expander("Gemma Engine Info"):
-                st.code(
-                    f"OLLAMA_MODEL={settings.model_name}\nSTATUS=RUNNING",
-                    language="bash",
-                )
-                st.caption("Configured for Gemma 4 26B parameters in this application session.")
-            if st.button("Refresh connection"):
-                st.session_state.model_status = client.check()
-                st.rerun()
+    with st.container(key="campuspulse_header"):
+        header, connection = st.columns([4, 1], vertical_alignment="center", gap="large")
+        with header:
+            styled_text("Campus energy, made clear", "eyebrow")
+            st.title("CampusPulse")
+            styled_text("Turn your electricity report into answers you can explain.", "lead")
+        with connection:
+            st.badge(
+                "Gemma connected" if status.ready else "Gemma offline",
+                color="green" if status.ready else "orange",
+            )
+            with st.popover("Connection settings", width="stretch"):
+                st.caption(status.message)
+                st.text(f"Model: {settings.model_name}")
+                st.caption(f"Endpoint: {settings.endpoint_label}")
+                with st.expander("Gemma Engine Info"):
+                    st.code(
+                        f"MODEL={settings.model_name}\nSTATUS={'READY' if status.ready else 'OFFLINE'}",
+                        language="bash",
+                    )
+                    st.caption("Model and connection status for this application session.")
+                if st.button("Refresh connection"):
+                    st.session_state.model_status = client.check()
+                    st.rerun()
     stage = 2 if "dataset" in st.session_state else 1 if st.session_state.get("tables") else 0
     progress_steps(stage)
     if st.session_state.get("source_name"):
-        with st.container(border=True):
+        with st.container(border=True, key="source_card"):
             file_info, file_action = st.columns([4, 1], vertical_alignment="center")
             with file_info:
                 styled_text(st.session_state.source_name, "file")
@@ -754,7 +873,9 @@ def main() -> None:
     dataset = st.session_state.get("dataset")
     if dataset is None:
         return
-    render_overview(dataset)
+    electricity_cost_settings()
+    with st.container(key="overview_panel"):
+        render_overview(dataset)
     st.divider()
     st.subheader("What would you like to know?")
     st.caption(

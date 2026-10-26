@@ -111,7 +111,7 @@ class GemmaClient:
             else:
                 try:
                     err_msg = resp.json().get("error", {}).get("message", resp.text[:300])
-                except Exception:
+                except (ValueError, TypeError, AttributeError):
                     err_msg = resp.text[:300]
                 raise AIError(f"Google API Error for {model} (HTTP {resp.status_code}): {err_msg}")
 

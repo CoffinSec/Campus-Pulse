@@ -199,3 +199,55 @@ def normalize(
         )
     )
     return Dataset(frame, columns, classification, warnings)
+
+
+def apply_custom_tariff(dataset: Dataset, rate: float | None) -> Dataset:
+    """Create a session-only estimated INR cost for every kWh observation.
+
+    Never silently fill missing consumption or alter the source rows. The input
+    dataset remains unchanged, so a new rate can always be applied afresh.
+    """
+    if rate is None:
+        return dataset
+    if isinstance(rate, bool) or not isinstance(rate, (int, float)):
+        raise DataError("Enter a numeric electricity rate in INR per kWh.")
+    rate = float(rate)
+    if not np.isfinite(rate) or not 0 <= rate <= 1_000_000:
+        raise DataError("Electricity rate must be finite and between ₹0 and ₹10,00,000 per kWh.")
+    frame = dataset.frame.copy(deep=True)
+    if "electricity_kwh" not in frame:
+        raise DataError("Electricity readings are required to calculate an estimated cost.")
+    cost = frame["electricity_kwh"] * rate
+    if not np.isfinite(cost.dropna().to_numpy(dtype=float)).all():
+        raise DataError("Estimated cost is outside the supported numeric range.")
+    frame["tariff_inr_per_kwh"] = rate
+    frame["electricity_cost_inr"] = cost
+    columns = [c for c in dataset.columns if c.name not in {"tariff_inr_per_kwh", "electricity_cost_inr"}]
+    columns += [
+        ColumnDefinition(name="tariff_inr_per_kwh", dtype="number", unit="INR/kWh"),
+        ColumnDefinition(name="electricity_cost_inr", dtype="number", unit="INR"),
+    ]
+    warnings = [
+        w for w in dataset.warnings
+        if not (w.code == "missing_values" and (
+            "in electricity_cost_inr" in w.message or "in tariff_inr_per_kwh" in w.message
+        ))
+    ]
+    warnings.append(
+        Caveat(
+            severity="info",
+            code="estimated_electricity_cost",
+            message=(
+                f"Estimated electricity cost uses your custom flat rate of ₹{rate:,.2f}/kWh "
+                "for every building and month (usage × rate). This is not an actual bill: "
+                "fixed charges, taxes and tiered tariffs are excluded."
+            ),
+        )
+    )
+    return Dataset(
+        frame=frame,
+        columns=columns,
+        classification=dataset.classification,
+        warnings=warnings,
+        custom_tariff_inr_per_kwh=rate,
+    )

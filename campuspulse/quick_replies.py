@@ -87,11 +87,20 @@ def report_summary(dataset: Dataset) -> str:
 
     lines = [
         f"Here's a summary of your electricity report ({dataset.classification}).",
-        f"Coverage: {info['buildings']} buildings, {info['months']} months ({period_text}); "
-        f"{len(dataset.frame)} source readings.",
+        (
+            f"Coverage: {info['buildings']} buildings, {info['months']} months ({period_text}); "
+            f"{len(dataset.frame)} source readings."
+        ),
         f"Total observed electricity: {total_text}.",
         f"Highest total electricity usage: {high_text}.",
     ]
+    if dataset.custom_tariff_inr_per_kwh is not None:
+        estimated = dataset.frame["electricity_cost_inr"].sum(min_count=1)
+        if pd.notna(estimated):
+            lines.append(
+                f"Estimated electricity cost at ₹{dataset.custom_tariff_inr_per_kwh:,.2f}/kWh: "
+                f"₹{estimated:,.2f} (not an actual bill; excludes fixed charges, slabs and taxes)."
+            )
     if pd.notna(total) and total > 0 and high_value is not None:
         lines.append(f"The highest-usage building represents {high_value / total * 100:.1f}% of recorded campus usage.")
 

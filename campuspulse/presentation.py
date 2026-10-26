@@ -101,6 +101,15 @@ def calculation_lines(result: CalculationResult) -> list[str]:
     if plan.intent == "scenario":
         return result.working + ["Source: " + source_reference(frame)]
     lines = []
+    if plan.metric == "electricity_cost_inr" and any(
+        w.code == "estimated_electricity_cost" for w in result.warnings
+    ):
+        unique_rates = frame["tariff_inr_per_kwh"].dropna().unique()
+        if len(unique_rates) == 1:
+            lines.append(
+                f"Estimated cost = observed kWh × ₹{float(unique_rates[0]):,.2f}/kWh "
+                "for each source row; excludes taxes, slabs and fixed charges."
+            )
     for row in result.values.head(10).itertuples():
         if pd.isna(row.value):
             lines.append(f"{period_label(row.label)}: no observation; left as a gap.")

@@ -243,3 +243,18 @@ Next improvements: validate more real PDF layouts, add explicitly reviewed table
 ## Licensing
 
 The repository owner has not yet selected a project distribution license; the hackathon checklist requires a public repository with an open-source licence, so add a `LICENSE` file before submitting. Dependencies retain their own licenses; PyMuPDF is offered under AGPL/commercial terms. Review applicable terms before distributing or deploying a derivative. No university branding rights are implied.
+
+
+## Custom electricity rate for all buildings
+
+On the **Check your data** screen, select **Other — enter a custom ₹/kWh rate**
+under **Electricity cost (INR)**. Enter a flat rate such as **₹10 per kWh** and
+confirm the dataset. CampusPulse derives an **estimated** INR cost for every
+recorded building-month (`kWh × rate`), including comparisons, cost trends,
+AI cost questions, charts, and CSV/PDF evidence. To change it, expand
+**Electricity cost (INR) · change global rate**, enter the new rate, and click
+**Apply electricity rate to all data**. Previous answers will be cleared to
+avoid mixing rates. See [CUSTOM_RATE_GUIDE.md](CUSTOM_RATE_GUIDE.md).
+
+Calculated costs are estimates, not actual billed amounts (no slab rates,
+fixed charges, or taxes). Missing kWh are never filled in.
