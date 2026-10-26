@@ -10,7 +10,11 @@ Built for **Hacktoberfest Hackday 2026 · Track 1 — Best Use of Gemma 4 · PS 
 
 ## Implementation status
 
-The application implements real PDF extraction, CSV ingestion, explicit schema confirmation, numerical analysis, Plotly charts, evidence export, and constrained Gemma question planning through the official Ollama client.
+The application implements real PDF extraction, CSV ingestion, explicit schema confirmation, numerical analysis, Plotly charts, evidence export, and constrained Gemma question planning, served either by an Ollama endpoint or by **Gemma 4 26B hosted on Google's Gemini API**.
+
+**Which Gemma runs where:** by default (`GEMMA_PROVIDER=ollama`) Gemma is served by Ollama, local to the app server. With `GEMMA_PROVIDER=gemini` the app calls the hosted open-weight model `gemma-4-26b-a4b-it` through the Google Gemini API; this is **not local**, it is a remote service, and the UI says so ("Hosted by Google (Gemini API)") and asks for consent before sending data.
+
+**Status of the Gemini API path: written, not yet run live.** It was added without network access, so it is untested against the real API. Run `python -m scripts.check_model` and the live tests, then update this line with the actual result.
 
 **Live Gemma inference has not been verified here.** This implementation environment has no Ollama service or model installed. Official Ollama GitHub documentation confirms Gemma 4 support, but network policy blocked the model catalog/registry. Therefore `gemma4:e2b` is a **candidate configuration whose specific tag availability is unverified**, not a claim that it has been installed or tested. Verify the tag before downloading/presenting. The application checks the exact installed tag and never substitutes another model.
 
@@ -32,8 +36,8 @@ Campus resource reports often hide missing observations, unfair comparisons and 
 - English, Hindi and Hinglish planning prompts with constrained JSON; real language quality needs live validation.
 - Visible plain-language working and caveats beneath every answer; no user-facing JSON. Rankings highlight winners, comparisons show grouped building bars and change cards, and trends mark high/low months.
 - Student-normalized usage with missing-denominator exclusions, history-based anomaly flags and conditional what-if savings.
-- Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation stages and measured response time stay visible. Preset buttons run explicit calculations without AI, including the month with highest usage.
-- Guarded Gemma explanations are optional: the calculated answer appears first, then **Explain with Gemma · optional** requests prose (Hindi for Hindi questions). PDF/PNG reports and spreadsheet-safe evidence CSV remain available without that extra call.
+- Follow-up questions inherit a validated plan; each answer offers three follow-up buttons. Planning/calculation/explanation stages and measured response time stay visible.
+- Guarded Gemma explanations, with Hindi prose for Hindi questions, plus a one-click PDF or PNG answer report and spreadsheet-safe evidence CSV. The image contains the same chart, working and caveats as the PDF.
 - Exact model status, local/remote disclosure and remote-processing consent.
 - Clearly labelled manual mode for disconnected development, without fake AI answers. Controls adapt to the selected analysis; comparison periods and what-if percentages appear only when needed.
 
@@ -51,7 +55,7 @@ flowchart LR
   G --> H[Answer / Plotly chart / trace / evidence]
 ```
 
-Python 3.11+ compatible source, tested on **Python 3.12.14**. Streamlit, pandas, NumPy, PyMuPDF, Plotly, Pydantic 2, the official `ollama` client, python-dotenv, pytest and Ruff. No database or separate API service is needed.
+Python 3.11+ compatible source, tested on **Python 3.12.14**. Streamlit, pandas, NumPy, PyMuPDF, Plotly, Pydantic 2, the official `ollama` client, the `google-genai` SDK (Gemini API provider), python-dotenv, pytest and Ruff. No database or separate API service is needed.
 
 ## Installation and launch
 
@@ -84,7 +88,24 @@ The sample artifacts are included. Regenerate them with:
 python -m scripts.generate_demo_data
 ```
 
-## Ollama and Gemma 4 setup
+## Gemma 4 via the Gemini API (hosted option)
+
+Use this if Gemma 4 does not run on your hardware. The open-weight Gemma 4 26B (A4B, instruction-tuned) is hosted by Google; the app sends it only the question, schema/category labels, previous validated plan and computed summaries, never raw readings or whole documents.
+
+1. Create a key in [Google AI Studio](https://aistudio.google.com/apikey).
+2. Put this in `.env` (never commit it; `.env` is in `.gitignore`):
+
+```dotenv
+GEMMA_PROVIDER=gemini
+GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemma-4-26b-a4b-it
+```
+
+3. `python -m pip install -r requirements.txt`, then `python -m scripts.check_model`, then `python -m streamlit run app.py`.
+
+The connection panel shows the model and "Hosted by Google (Gemini API)", and the remote-processing consent checkbox must be ticked before questions are sent. Free-tier quotas and rate limits apply; the model name is configurable if Google changes it. Dependencies for this path: `google-genai`.
+
+## Ollama and Gemma 4 setup (local option)
 
 Install a current Ollama release following the [official project](https://github.com/ollama/ollama) and its [platform instructions](https://docs.ollama.com/quickstart). Its README documents Gemma 4 and the Python client. Check the [official Gemma 4 tag catalog](https://ollama.com/library/gemma4/tags) and choose a tag that fits your hardware. The implementation environment could not verify the candidate `gemma4:e2b` against that catalog.
 
@@ -102,25 +123,18 @@ ollama list
 python -m scripts.check_model
 ```
 
-Model downloads can be multiple gigabytes. The application never downloads them automatically. Configure the exact installed tag. Gemma, Gemma 2, Gemma 3/3n and Gemma 4 tags are accepted when explicitly selected, with no silent substitution. **Gemma 4 is still required for the hackathon demonstration**; selecting `gemma2:2b` for local experimentation does not satisfy that requirement. Compatibility with the client is not a claim of verified live language quality.
+Model downloads can be multiple gigabytes. The application never downloads them automatically. Configure the exact installed official `gemma4:<tag>`; larger variants are configurable, with their own hardware requirements. No other family is silently substituted.
 
 ```dotenv
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=gemma4:e2b
-OLLAMA_TIMEOUT_SECONDS=45
-OLLAMA_NUM_PREDICT=512
+OLLAMA_TIMEOUT_SECONDS=90
 APP_TIMEZONE=Asia/Kolkata
 ```
 
-Restart Streamlit after changing `.env`. Open **Connection settings → Refresh connection**. An available model is not proof of inference: type a question or run the live integration tests to demonstrate actual Gemma use. Preset buttons intentionally do not call the model.
+Restart Streamlit after changing `.env`. Press **Check model connection**. An available model is not proof of inference: ask a question or run the live integration tests to demonstrate actual Gemma use.
 
-For slow laptops, start with the quick calculations. Typed questions make one planning call; explanations require a separate click. The default output budget is 512 tokens for a plan and at most 256 for an explanation, with a 45-second read timeout and a 10-minute model keep-alive. Existing `.env` timeout values take precedence, so update them explicitly. Smaller budgets reduce generated work but can cut short complex requests; such responses are rejected without an automatic retry. These settings do not guarantee a particular hardware speed.
-
-Run `ollama ps` on the laptop while a request is active to inspect CPU/GPU use. Answers display Ollama's model-loading, prompt-processing and generation durations when available. A long model-load phase suggests cold starts; generation speed depends on hardware and model size. No GPU throughput was measured in this cloud checkout.
-
-“In which month the elctricity bill was higest” is checked before inference when the file has no cost column: the app explains that bill amounts are missing. For the synthetic sample, **Month with highest electricity use** returns June 2026, **21,950 kWh**. That is consumption, not a rupee bill.
-
-Remote Ollama is supported through `OLLAMA_HOST`. Use a trusted, secured endpoint; the app requires consent before transmitting questions/schema to a remote server. It does not implement hosted-provider authentication adapters, and the inference client does not inherit ambient HTTP proxy settings. Configure an endpoint it can reach directly.
+Remote Ollama is supported through `OLLAMA_HOST`. Use a trusted, secured endpoint; the app requires consent before transmitting questions/schema to a remote server. The Ollama client does not implement authentication adapters (use the Gemini provider for a hosted model) and does not inherit ambient HTTP proxy settings. Configure an endpoint it can reach directly.
 
 Restricted cloud environments may require `ollama.com`, `docs.ollama.com`, `registry.ollama.ai`, official release artifact hosts, or the configured remote endpoint in their network settings. A saved draft does not apply network changes to the running instance.
 
@@ -216,16 +230,16 @@ Remote live tests also require `ALLOW_REMOTE_INFERENCE=1` to acknowledge metadat
 | Chart/table and explanation | Plotly and deterministic numerical templates | Tested |
 | Underlying rows/fields cited | File, PDF page/table, original row and raw cells | Tested |
 | Missing-information warnings | Missing periods/cost/values, partial coverage, duplicates | Tested |
-| Meaningful Gemma 4 use | Official client + constrained language planning | Implemented; **live demonstration incomplete** |
+| Meaningful Gemma 4 use | Ollama client or Gemini API (`gemma-4-26b-a4b-it`) + constrained language planning | Implemented; **live demonstration incomplete (Gemini path not yet run)** |
 | Synthetic vs official distinction | UI labels, fixture documentation | Implemented; no official data claimed |
 | Assumptions and verification | Actual trace, formulas and source rows | Tested |
 
 ## Limitations and future work
 
-Before presenting the official AI demo, verify/install a Gemma 4 tag and pass the live tests. Hardware throughput and multilingual quality remain unverified here. No OCR, automatic table merging, water/waste schemas, per-area normalization, derived billing, causal diagnosis or production authentication is included. Consumption alone does not establish waste/efficiency. Floating-point measurement arithmetic is not an accounting ledger.
+Before presenting the official AI demo, pass `scripts.check_model` and the live tests with your chosen provider. Hosted inference needs internet access, a valid API key and available quota during the demo. Hardware throughput and multilingual quality remain unverified here. No OCR, automatic table merging, water/waste schemas, per-area normalization, derived billing, causal diagnosis or production authentication is included. Consumption alone does not establish waste/efficiency. Floating-point measurement arithmetic is not an accounting ledger.
 
 Next improvements: validate more real PDF layouts, add explicitly reviewed table merging/OCR, and evaluate real multilingual queries. A real Chromium workflow was checked in the cloud environment; no hosted demo is claimed. Still check the layout on the presentation laptop.
 
 ## Licensing
 
-The repository owner has not selected a project distribution license. Dependencies retain their own licenses; PyMuPDF is offered under AGPL/commercial terms. Review applicable terms before distributing or deploying a derivative. No university branding rights are implied.
+The repository owner has not yet selected a project distribution license; the hackathon checklist requires a public repository with an open-source licence, so add a `LICENSE` file before submitting. Dependencies retain their own licenses; PyMuPDF is offered under AGPL/commercial terms. Review applicable terms before distributing or deploying a derivative. No university branding rights are implied.

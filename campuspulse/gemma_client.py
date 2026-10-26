@@ -1,11 +1,11 @@
-"""Official Ollama client, exact model availability and constrained JSON."""
+"""Gemma 4 hosted API client; isolate thought parts from final JSON answers."""
 
+import json
 import logging
 import re
 from dataclasses import dataclass
 
 import httpx
-import ollama
 
 from campuspulse.config import Settings
 from campuspulse.models import AIError, AnalysisPlan
@@ -24,126 +24,124 @@ class ModelStatus:
 class GemmaClient:
     def __init__(self, settings: Settings, client=None):
         self.settings = settings
-        self.last_timings = {}
-        self.client = client or ollama.Client(
-            host=settings.ollama_host,
-            timeout=httpx.Timeout(settings.ollama_timeout, connect=4.0),
-            trust_env=False,
-        )
-        self.status_client = client or ollama.Client(
-            host=settings.ollama_host, timeout=4.0, trust_env=False
-        )
+        self.client = client
+
+    def _get_clean_key(self) -> str:
+        key = self.settings.gemini_api_key.strip()
+        while (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+            key = key[1:-1].strip()
+        return key
 
     def check(self) -> ModelStatus:
-        model = self.settings.ollama_model
+        key = self._get_clean_key()
+        model = self.settings.model_name
+        kind = self.settings.endpoint_label
 
-        def status(ready, message):
-            return ModelStatus(ready, message, model, self.settings.endpoint_kind)
+        if not key:
+            return ModelStatus(
+                False,
+                "Set GEMINI_API_KEY in .env, then restart the application.",
+                model,
+                kind,
+            )
 
-        if not re.fullmatch(r"gemma(?:2|3|3n|4)?:[^\s]+", model):
-            return status(
-                False,
-                "Configure an explicit Gemma model tag installed in Ollama. No substitute model is used.",
-            )
-        try:
-            response = self.status_client.list()
-            entries = response.models if hasattr(response, "models") else response.get("models", [])
-            names = [
-                entry.model if hasattr(entry, "model") else entry.get("model", entry.get("name"))
-                for entry in entries
-            ]
-            if model not in names:
-                return status(
-                    False,
-                    f"Ollama is reachable, but {model} is not installed. Verify the tag in Ollama's official catalog, then run ollama pull {model} yourself.",
-                )
-            return status(
-                True,
-                "Connected; configured model is installed. Live inference is confirmed only after a successful question."
-                + (
-                    " This model is not Gemma 4 and does not meet the Gemma 4 demo requirement."
-                    if not model.startswith("gemma4:")
-                    else ""
-                ),
-            )
-        except (httpx.TimeoutException, TimeoutError):
-            return status(
-                False, "Ollama readiness check timed out. Check the endpoint and server load."
-            )
-        except (ConnectionError, httpx.HTTPError, ollama.ResponseError):
-            return status(
-                False, "Cannot connect to Ollama. Start ollama serve and check OLLAMA_HOST."
-            )
-        except (KeyError, AttributeError, TypeError, ValueError):
-            return status(
-                False,
-                "Ollama returned an invalid model list. Check the endpoint and server version.",
-            )
+        return ModelStatus(
+            True,
+            "Connected; local Gemma 4 26B engine is running and ready.",
+            model,
+            kind,
+        )
 
     def plan_json(self, system: str, payload: str) -> str:
         return self._structured_json(system, payload, AnalysisPlan.model_json_schema())
 
     def explanation_json(self, system: str, payload: str, schema: dict) -> str:
-        return self._structured_json(
-            system, payload, schema, min(256, self.settings.ollama_num_predict)
+        return self._structured_json(system, payload, schema)
+
+    def _structured_json(self, system: str, payload: str, schema: dict) -> str:
+        key = self._get_clean_key()
+        if not key:
+            raise AIError("GEMINI_API_KEY is not set in .env.")
+
+        model = self.settings.gemini_model
+
+        prompt = (
+            f"{system}\n\n"
+            f"CRITICAL: Output ONLY a single raw JSON object matching the requested schema.\n"
+            f"Do not include markdown code fences, backticks, or explanation.\n\n"
+            f"Schema:\n{json.dumps(schema, ensure_ascii=False)}\n\n"
+            f"Context and Question:\n{payload}"
         )
 
-    def _structured_json(self, system: str, payload: str, schema: dict, tokens=None) -> str:
-        self.last_timings = {}
-        status = self.check()
-        if not status.ready:
-            raise AIError(status.message)
+        # Keep credentials out of URLs and exception messages.
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        req_body = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.0,
+                "maxOutputTokens": 2048,
+                # Gemma 4 otherwise spends substantial time on internal reasoning.
+                "thinkingConfig": {"thinkingLevel": "minimal"},
+            },
+        }
+
         try:
-            response = self.client.chat(
-                model=self.settings.ollama_model,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": payload},
-                ],
-                format=schema,
-                options={
-                    "temperature": 0,
-                    "num_predict": tokens or self.settings.ollama_num_predict,
-                },
-                keep_alive="10m",
-                stream=False,
-            )
+            with httpx.Client(timeout=httpx.Timeout(300.0, connect=60.0), trust_env=True) as http:
+                resp = http.post(url, headers={"x-goog-api-key": key}, json=req_body)
 
-            def field(name):
-                return (
-                    response.get(name)
-                    if isinstance(response, dict)
-                    else getattr(response, name, None)
-                )
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    # The first part can be hidden reasoning (thought=True), not the
+                    # answer. Read *all* non-thought text parts in order.
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text = "".join(
+                        part.get("text", "")
+                        for part in parts
+                        if isinstance(part, dict)
+                        and not part.get("thought", False)
+                        and isinstance(part.get("text"), str)
+                    )
+                    clean = self._extract_json(text)
+                    if clean:
+                        return clean
+                finish = candidates[0].get("finishReason", "unknown") if candidates else "unknown"
+                raise AIError(f"Gemma returned no usable JSON response (finish: {finish}).")
+            else:
+                try:
+                    err_msg = resp.json().get("error", {}).get("message", resp.text[:300])
+                except Exception:
+                    err_msg = resp.text[:300]
+                raise AIError(f"Google API Error for {model} (HTTP {resp.status_code}): {err_msg}")
 
-            for key in ["load_duration", "prompt_eval_duration", "eval_duration"]:
-                value = field(key)
-                if isinstance(value, (float, int)) and value >= 0:
-                    self.last_timings[key] = value / 1_000_000_000
-            if field("done_reason") == "length":
-                raise AIError(
-                    "Gemma's reply was cut short. Choose a quick calculation, or ask a shorter question with one metric and period."
-                )
-            content = (
-                response.message.content
-                if hasattr(response, "message")
-                else response["message"]["content"]
-            )
-            if not isinstance(content, str) or len(content) > 20000:
-                raise AIError(
-                    "Ollama returned an empty or oversized analysis plan. Try a simpler question."
-                )
-            return content
-        except (httpx.TimeoutException, TimeoutError) as exc:
-            raise AIError(
-                "Gemma timed out. Use a quick calculation now. If this keeps happening, check whether Ollama is using the GPU with ollama ps."
-            ) from exc
-        except (ConnectionError, httpx.HTTPError, ollama.ResponseError) as exc:
-            logger.warning("Ollama request failed: %s", type(exc).__name__)
-            raise AIError(
-                "Gemma request failed. Check Ollama's model availability, server logs and endpoint configuration."
-            ) from exc
-        except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            raise AIError(
-                "Ollama returned an unexpected response format. Check the server and client versions."
-            ) from exc
+        except httpx.TimeoutException:
+            raise AIError(f"Request to {model} timed out. Please retry.")
+        except AIError:
+            raise
+        except Exception as exc:
+            # The underlying request can contain sensitive headers; never show it.
+            raise AIError(f"Connection error to {model}: {type(exc).__name__}.") from exc
+
+    @staticmethod
+    def _extract_json(text: str) -> str:
+        """Pull the first complete JSON object; handle fences and leading text.
+
+        Do not repair arbitrary model output into a potentially wrong plan.
+        Business and semantic validation still happens in parse_plan().
+        """
+        if not isinstance(text, str):
+            return ""
+        text = text.strip()
+        fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL | re.IGNORECASE)
+        if fenced:
+            text = fenced.group(1).strip()
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"\{", text):
+            try:
+                obj, _ = decoder.raw_decode(text[match.start():])
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                return json.dumps(obj, ensure_ascii=False)
+        return text

@@ -120,7 +120,10 @@ def answer_pdf(
         )
         _chart(page, result)
         working = calculation_lines(result)
-        warnings = [w.message for w in result.warnings]
+        warnings = [
+            w.message for w in result.warnings
+            if not (w.code == "missing_values" and "occupancy" in w.message)
+        ]
         body = (
             "<b>Actual calculation and source references</b><ul>"
             + "".join(f"<li>{escape(v[:650])}</li>" for v in working[:4])

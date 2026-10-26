@@ -151,7 +151,10 @@ Return JSON with meaning and checks matching the supplied schema."""
             "language": language,
             "intent": result.plan.intent,
             "facts": facts,
-            "caveats": [w.message for w in result.warnings],
+            "caveats": [
+                w.message for w in result.warnings
+                if not (w.code == "missing_values" and "occupancy" in w.message)
+            ],
         },
         ensure_ascii=False,
     )

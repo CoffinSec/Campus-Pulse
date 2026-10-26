@@ -53,14 +53,14 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
         messages = {
             "unavailable": "The requested information is not available in this dataset.",
             "unsupported": "Consumption alone cannot establish waste, efficiency or a cause. Occupancy, building size and operating context are needed.",
-            "clarification": "Please specify the metric, building and/or two comparison periods explicitly.",
+            "clarification": "I need one more detail to calculate that specific result. Which building, metric or time period do you mean? For a report-wide overview, just ask for a summary.",
         }
         # Never present free-form model text as a verified factual explanation.
         return unavailable(messages[plan.intent], plan.intent)
     if plan.metric not in frame:
         message = f"The dataset does not contain {plan.metric}."
         if plan.metric == "electricity_cost_inr":
-            message = "This report has no electricity bill amounts (INR). Electricity use in kWh cannot tell us which bill was highest. Add recorded bill amounts to compare costs, or choose ‘Month with highest electricity use’ to compare kWh."
+            message += " Cost requires recorded cost values or a validated tariff calculation; consumption alone is insufficient."
         return unavailable(message)
     for item in plan.filters:
         values = item.value if isinstance(item.value, list) else [item.value]
@@ -90,6 +90,25 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
                 f"Cannot compare: missing requested period(s) {', '.join(sorted(missing))}."
             )
         frame = frame.loc[frame["month"].isin(plan.periods)].copy()
+
+    # Occupancy is a monthly headcount, not an additive flow like electricity.
+    # For an unqualified total or building comparison, use the latest MONTH
+    # across the selected data so that the same students are not counted six
+    # times. Explicit month comparisons, trends and averages keep their periods.
+    occupancy_snapshot = (
+        plan.metric == "occupancy"
+        and plan.aggregation == "sum"
+        and plan.intent in {"aggregate", "group_comparison", "ranking"}
+        and plan.group_by != ["month"]
+    )
+    snapshot_month = None
+    if occupancy_snapshot:
+        snapshot_month = str(frame["month"].max())
+        frame = frame.loc[frame["month"].eq(snapshot_month)].copy()
+        trace.append(
+            f"Occupancy is a headcount; used {snapshot_month} only. "
+            "Never sum headcounts across separate months."
+        )
     trace.append(
         f"Selected {len(frame)} source rows; {int(frame[plan.metric].count())} contain numeric values."
     )
@@ -209,7 +228,12 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             first = values.iloc[0]
             winners = values.loc[values.value.eq(first.value), "label"].astype(str).tolist()
             word = "lowest" if plan.sort == "ascending" else "highest"
-            answer = f"{', '.join(winners)}: {word} {plan.aggregation}, {_fmt(first.value)} {unit}."
+            answer = (
+                f"{', '.join(winners)}: {word} occupancy as of {snapshot_month}, "
+                f"{_fmt(first.value)} {unit}."
+                if occupancy_snapshot
+                else f"{', '.join(winners)}: {word} {plan.aggregation}, {_fmt(first.value)} {unit}."
+            )
             trace.append(
                 f"Sorted {plan.sort}; retained top {plan.limit}, including ties at the cutoff."
             )
@@ -229,8 +253,13 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
         else:
             values = values.sort_values("label")
             answer = (
-                "; ".join(f"{r.label}: {_fmt(r.value)} {unit}" for r in values.itertuples())
-                + f" ({plan.aggregation})."
+                "; ".join(
+                    f"{r.label}: unavailable" if pd.isna(r.value)
+                    else f"{r.label}: {_fmt(r.value)} {unit}"
+                    for r in values.itertuples()
+                )
+                + (f" (headcounts for {snapshot_month}; unavailable means not recorded)."
+                   if occupancy_snapshot else f" ({plan.aggregation}).")
             )
             chart = "bar"
     else:
@@ -250,7 +279,19 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             trace.append(
                 f"Mean = {float(series.sum(min_count=1))!r} / {int(series.count())} = {value!r}."
             )
-        answer = f"{plan.aggregation.capitalize()} of {plan.average_basis.replace('_', ' ')}: {_fmt(value)} {unit}."
+        if occupancy_snapshot:
+            observed = int(frame[plan.metric].notna().sum())
+            answer = (
+                f"Sum of recorded building occupancies for {snapshot_month}: {_fmt(value)} {unit} "
+                f"across {observed} of {len(frame)} selected buildings. "
+                "This is not a complete campus headcount; a building has no value, "
+                "and people may be counted in multiple buildings."
+                if observed < len(frame)
+                else f"Sum of building occupancies for {snapshot_month}: {_fmt(value)} {unit}. "
+                     "This may count the same people in more than one building."
+            )
+        else:
+            answer = f"{plan.aggregation.capitalize()} of {plan.average_basis.replace('_', ' ')}: {_fmt(value)} {unit}."
         chart = "metric"
     if not np.isfinite(values["value"].dropna().to_numpy(dtype=float)).all() or any(
         isinstance(v, float) and not np.isfinite(v) for v in details.values() if v is not None

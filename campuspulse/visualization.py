@@ -111,9 +111,6 @@ def build_chart(result: CalculationResult) -> go.Figure | None:
     if pd.notna(maximum):
         fig.update_yaxes(range=[0, max(float(maximum) * 1.2, 1)])
     fig.update_xaxes(type="category", automargin=True)
-    if intent == "ranking" and result.plan.group_by == ["month"]:
-        fig.update_layout(title="Month ranking · result highlighted", xaxis_title="Month")
-        fig.update_xaxes(tickvals=x, ticktext=[period_label(v) for v in x])
     fig.update_traces(hovertemplate=f"%{{x}}<br>%{{y:,.2f}} {result.unit}<extra></extra>")
     if intent == "trend":
         fig.update_xaxes(

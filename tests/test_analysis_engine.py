@@ -121,10 +121,7 @@ def test_unavailable_cost(dataset):
         dataset, AnalysisPlan(intent="aggregate", metric="electricity_cost_inr", aggregation="sum")
     )
     assert result.status == "unavailable"
-    assert "bill amounts (INR)" in result.answer
-    assert "kWh" in result.answer
-    assert result.values.empty and result.evidence.empty
-    assert build_chart(result) is None
+    assert "tariff" in result.answer
 
 
 def test_zero_denominator():

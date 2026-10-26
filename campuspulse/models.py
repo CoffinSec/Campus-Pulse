@@ -53,6 +53,7 @@ class Filter(StrictModel):
 class AnalysisPlan(StrictModel):
     intent: Literal[
         "ranking",
+        "report_overview",
         "trend",
         "period_comparison",
         "group_comparison",
@@ -79,6 +80,16 @@ class AnalysisPlan(StrictModel):
 
     @model_validator(mode="after")
     def coherent(self) -> "AnalysisPlan":
+        if self.intent == "report_overview" and (
+            self.metric != "electricity_kwh"
+            or self.aggregation != "sum"
+            or self.filters
+            or self.group_by
+            or self.periods
+            or self.reduction_percent is not None
+            or self.scenario_buildings
+        ):
+            raise ValueError("A report overview must use the complete electricity dataset.")
         if self.intent == "scenario":
             if self.reduction_percent is None or not self.scenario_buildings:
                 raise ValueError("A scenario needs a reduction percentage and selected buildings.")

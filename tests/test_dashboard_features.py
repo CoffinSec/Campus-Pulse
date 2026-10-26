@@ -236,7 +236,7 @@ def test_followup_passes_validated_plan_not_transcript(dataset, settings):
     client.plan_json.return_value = expected.model_dump_json()
     got = plan_question("and in May?", dataset, settings, client, previous_plan=previous)
     payload = json.loads(client.plan_json.call_args.args[1])
-    assert AnalysisPlan.model_validate(payload["previous_plan"]) == previous
+    assert payload["previous_plan"] == previous.model_dump()
     assert got.filters[0].value == "2026-05"
     assert "history" not in payload
     result = calculate(dataset, got)
