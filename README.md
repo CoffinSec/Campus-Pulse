@@ -6,8 +6,6 @@ Upload a campus electricity PDF or CSV, ask a question, inspect a chart, and tra
 
 Built for **Hacktoberfest Hackday 2026 · Track 1 — Best Use of Gemma 4 · PS 03 — Community and Environmental Data Intelligence**. The pilot context is IIMT University, Meerut, India. This independent prototype claims **no university endorsement or official resource data**.
 
-> **SYNTHETIC DEMONSTRATION DATA:** all bundled measurements are fictional. The sample PDF and CSV contain the same 30 observations.
-
 ## Implementation status
 
 The application implements real PDF extraction, CSV ingestion, explicit schema confirmation, numerical analysis, Plotly charts, evidence export, and constrained Gemma question planning, served either by an Ollama endpoint or by **Gemma 4 26B hosted on Google's Gemini API**.
