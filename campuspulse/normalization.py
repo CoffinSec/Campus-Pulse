@@ -1,5 +1,6 @@
 """Explicit mapping and conservative, auditable normalization."""
 
+import json
 import re
 from datetime import datetime
 
@@ -119,6 +120,10 @@ def normalize(
     if any(c not in table.frame for c in PROVENANCE):
         raise DataError("Source references are missing. Re-upload the original file.")
     frame = table.frame[PROVENANCE].copy()
+    source_columns = [c for c in table.frame.columns if c not in PROVENANCE]
+    frame["raw_cells"] = table.frame[source_columns].fillna("").astype(str).apply(
+        lambda row: json.dumps(row.to_dict(), ensure_ascii=False), axis=1
+    )
     warnings = list(table.warnings)
     columns = []
     for target, source in mapping.items():
@@ -162,7 +167,8 @@ def normalize(
                     f"Column {target} contains missing labels. Correct the source before analysis."
                 )
             columns.append(ColumnDefinition(name=target, dtype="category"))
-    if frame.duplicated(["building_name", "month"]).any():
+    keys = (["source_id"] if "source_id" in frame else []) + ["building_name", "month"]
+    if frame.duplicated(keys).any():
         raise DataError(
             "Duplicate building/month observations detected. Their meaning is ambiguous; resolve or aggregate them explicitly in the source before upload."
         )

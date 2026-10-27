@@ -68,7 +68,8 @@ def verified_facts(result: CalculationResult, language: str) -> dict[str, str]:
     names = ["first", "second", "third", "fourth", "fifth", "sixth"]
     for name, row in zip(names, result.values.head(6).itertuples()):
         if pd.notna(row.value):
-            facts[name] = f"{row.label}: {row.value:,.2f} {result.unit}"
+            source = (f" [{row.source_label}]" if hasattr(row, "source_label") else "")
+            facts[name] = f"{row.label}{source}: {row.value:,.2f} {result.unit}"
     labels = {
         "old": "Earlier value",
         "new": "New value",

@@ -8,8 +8,15 @@ from campuspulse.normalization import NUMERIC_UNITS, parse_month
 
 def validate_plan(plan: AnalysisPlan, dataset: Dataset) -> None:
     columns = {c.name: c for c in dataset.columns}
-    if plan.metric not in NUMERIC_UNITS:
+    available_sources = set(dataset.frame["source_id"].unique()) if "source_id" in dataset.frame else set()
+    if plan.sources and (not available_sources or set(plan.sources) - available_sources):
+        raise PlanError("Unknown source_id. Select a confirmed report.")
+    if plan.intent == "compare_sources" and not available_sources:
+        raise PlanError("Source comparison requires confirmed reports.")
+    if plan.metric not in NUMERIC_UNITS and not (plan.intent == "compare_sources" and plan.metric == "kwh_per_student"):
         raise PlanError("Unknown metric. Select an available numeric column.")
+    if plan.intent == "compare_sources" and plan.metric == "kwh_per_student" and plan.aggregation != "mean":
+        raise PlanError("Per-student source comparisons require mean aggregation.")
     if plan.intent == "scenario":
         if len(set(plan.scenario_buildings)) != len(plan.scenario_buildings):
             raise PlanError("Select each scenario building once.")

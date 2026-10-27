@@ -17,13 +17,14 @@ def _integer(name: str, default: int, low: int, high: int) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    provider: str = "gemini"
+    provider: str = "ollama"
     gemini_model: str = "gemma-4-26b-a4b-it"
     gemini_api_key: str = field(default="", repr=False)
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "gemma4:26b"
     ollama_timeout: int = 300
     max_upload_mb: int = 10
+    max_files: int = 5
     max_pdf_pages: int = 30
     max_tables: int = 30
     max_rows: int = 20000
@@ -33,16 +34,19 @@ class Settings:
 
     @property
     def model_name(self) -> str:
-        """Displayed in the UI, badge, and chat responses."""
-        return "gemma4:26b"
+        return self.gemini_model if self.provider == "gemini" else self.ollama_model
 
     @property
     def endpoint_label(self) -> str:
-        return "Local to app server"
+        if self.provider == "gemini":
+            return "Hosted by Google (Gemini API)"
+        return "Local to app server" if self.ollama_host.startswith(("http://localhost:", "http://127.0.0.1:")) else "Remote Ollama"
 
     @property
     def endpoint_kind(self) -> str:
-        return "Local to app server"
+        if self.provider == "gemini":
+            return "Remote"
+        return "Local to app server" if self.endpoint_label == "Local to app server" else "Remote"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -81,6 +85,7 @@ class Settings:
             ollama_model=os.getenv("OLLAMA_MODEL", "gemma4:26b"),
             ollama_timeout=_integer("OLLAMA_TIMEOUT_SECONDS", 90, 1, 300),
             max_upload_mb=_integer("MAX_UPLOAD_MB", 10, 1, 50),
+            max_files=_integer("MAX_FILES", 5, 1, 10),
             max_pdf_pages=_integer("MAX_PDF_PAGES", 30, 1, 100),
             max_tables=_integer("MAX_TABLES", 30, 1, 100),
             max_rows=_integer("MAX_DATASET_ROWS", 20000, 1, 100000),

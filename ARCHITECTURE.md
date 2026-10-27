@@ -107,3 +107,56 @@ Follow-up buttons pass their own parent answer's plan; typed follow-ups use the 
 `reporting.py` uses the already-installed PyMuPDF to generate a self-contained, single-page PDF with a vector chart, result, formulas, citations and caveats. It escapes untrusted labels and requires no hosted renderer. Large results are explicitly abbreviated (up to ten chart categories, four working lines and six caveats); full working remains in the app and all source rows are in the CSV. Reports are session-local and do not trigger inference again.
 
 PNG export rasterizes that same report at 144 dpi, preserving its chart, working and caveats. PDF and PNG bytes are cached in the session entry; downloads do not rerun the app. A PNG failure leaves the PDF, CSV and calculated answer available. Presentation helpers in `ui.py` escape all dynamic text before adding styles. The UI uses native Streamlit controls, a responsive three-step guide and analysis-specific manual controls; calculation and model-validation code is independent of styling.
+
+
+## Multi-source architecture (October 2026)
+
+```
+Up to MAX_FILES PDF/CSV uploads
+  -> independent bounded ingestion / preview / explicit mapping and confirmation
+  -> SourceEntry(source_id, filename, display_label, Dataset) [Streamlit session]
+  -> combine_sources: concatenated frame with source_id + source_label
+  -> Python plan/semantic validator (source allowlist + existing metrics)
+  -> Gemma constrained JSON plan (question, schema, IDs/labels, prior validated plan only)
+  -> Python calculate() (scoped sources, compare_sources, per-source trends)
+  -> Plotly / human-readable formula / source-provenance CSV / answer PDF, PNG
+```
+
+`campuspulse/multi_source.py` maintains an immutable-identity source registry and combines **confirmed** datasets while preserving source provenance. File names are sanitized and IDs de-duplicated. Original uploaded bytes are discarded after parsing. Cross-source duplicate building/month pairs remain separate; only within-source duplicates are errors. Any overlapping aggregate is flagged as potentially double-counted.
+
+`campuspulse/source_analysis.py` computes source comparisons. Source A is the first selected/confirmed source; subsequent source values are compared independently with differences and undefined zero-baseline percentages. Per-student comparisons require positive complete occupancy. Source-specific trend lines never fill missing months with invented zeros. Changes in the selection, labels, file removal or rate invalidate the prior answer history.
+
+The planner's `sources` list contains only selected source IDs, and source descriptions contain no raw rows. Category names are only schema labels, never prompts to execute code. All arithmetic and source references come from validated Python operations. The new frontend palette is applied through `.streamlit/config.toml`, `campuspulse/ui.py`, `campuspulse/visualization.py`, and `campuspulse/reporting.py`.
+
+The Gemini provider is **hosted** and is not labelled as local. Ollama remains a separate configured endpoint. Presence of a Gemini API key is not proof of successful inference; remote processing requires consent in the UI.
+
+
+## Multi-source data flow (current build)
+
+```text
+Streamlit multi-file picker (up to MAX_FILES; never persist upload bytes)
+  -> independent CSV/PDF parse + preview + column mapping + confirmation
+  -> SourceEntry(source_id, source_label, per-file validated Dataset)
+  -> combine_sources() [keeps original provenance; *does not* merge overlapping rows]
+  -> apply_custom_tariff() [optional shared, user-set ₹/kWh]
+  -> selected sources -> schema_context (names, periods and column metadata only)
+  -> Gemma planning (JSON only) -> strict Pydantic + semantic validation
+  -> Python calculate() or compare_sources() / source_trend()
+  -> human-readable trace, per-source Plotly, and source-aware PDF/PNG/CSV evidence
+```
+
+`source_id` uniquely identifies the report throughout the session; `source_label` is
+editable presentation metadata. `row_id` is namespaced with the source ID. The
+uniqueness key is `(source_id, building_name, month)`, while original page/table/
+source row/raw values remain unchanged. The model never receives source rows or
+raw uploads. All-files sums require care with overlapping sources; a duplicate
+building/month from two files is not an error, but is **not** a new independent
+reading either. Comparisons calculate each file separately and report change
+relative to the reference (first selected) source, with undefined percentages
+when baseline is zero.
+
+**Per-source concerns:** mismatched building names produce tentative fuzzy-match
+*warnings only*, not a hidden rename; optional missing columns and periods are
+reported; unit choices are checked per upload; global flat-rate estimates use
+one rate for all files. For data that require a building-name merge, correct
+the source files and confirm the remapped data explicitly. No OCR/database.

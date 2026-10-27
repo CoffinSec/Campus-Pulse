@@ -61,3 +61,32 @@ No model download was attempted. No other model or deterministic natural-languag
 5. Present the actual AI-assisted PDF workflow in [DEMO.md](DEMO.md). Manual mode is only a clearly labelled backup.
 
 Python dependencies and generated demo files are retained on disk. Running services must restart in a new environment; see saved startup instructions. Draft configuration persistence, publication and fresh-task restoration are separate stages and are not established by the test results above.
+
+
+## Multi-source change record — 27 October 2026
+
+The original validation results above describe **older code** and must not be interpreted as current live-browser validation.
+
+**Actually executed in this environment** (Python 3.13, not Python 3.12):
+
+- `python -m pytest -q`: **222 passed, 19 skipped**. Existing Streamlit AppTest/UI state checks were skipped because Streamlit is absent here; the remaining skips are optional Google SDK and opt-in live-model tests. New deterministic source comparisons, explicit building-name review and previous single-file calculations passed.
+- `python -m scripts.smoke_test`: **passed** PDF and CSV ingestion and original single-file numerical operations.
+- Python bytecode compilation of `app.py` and `campuspulse/`: passed.
+- Parsed genuine synthetic PDFs: original, second-half 2026, and overlapping-month variant all yielded one table with 30 rows.
+- `python -m pip check`: reported an existing unrelated package conflict (`moviepy` requires Pillow under 12, container has Pillow 12.3). This is the sandbox environment, not an observed app deployment error.
+- `python -m ruff check .` and `python -m ruff format --check .`: **not executed successfully** because Ruff is unavailable and package download failed (network blocked).
+- Streamlit runtime/UI browser: **not tested** (Streamlit unavailable; package download failed).
+- Live Gemma/Ollama/Gemini inference: **not tested**. `tests/test_live_multi_gemma.py` requires `RUN_LIVE_GEMMA=1` and reachable configured model.
+
+Known limitations: PDF and PNG remain visual summary formats (the PDF embeds the entire evidence CSV as an attachment; the standalone evidence CSV includes every row, while the PNG remains a first-page summary); missing/nonoverlapping data cannot establish like-for-like causality. Existing browser-focused test assertions may require updates to reflect the multi-upload workflow once Streamlit is installed. Do not claim all CI checks passed on this build.
+
+
+### Final packaged build
+
+- Latest `python -m pytest -q`: **222 passed, 19 skipped** (Python 3.13 sandbox).
+- `python -m scripts.smoke_test`: passed.
+- `python -m compileall -q app.py campuspulse scripts tests`: passed.
+- Ruff lint/format: unavailable because `ruff` is not installed here and no external package downloads succeeded. Run both locally before deployment.
+- `python -m pip check`: returned an unrelated environment-wide MoviePy/Pillow conflict; it does not establish the lockfile as broken.
+- Streamlit user interface, Google SDK integration, Google/Ollama live inference and multilingual accuracy: **not verified in this environment**.
+- User-selected source labels are resolved conservatively (exact names), and model plans are still subject to strict allowlisted validation. This improves reliability but cannot guarantee that every free-form prompt is understood.

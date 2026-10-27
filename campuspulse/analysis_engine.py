@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from campuspulse.extended_analysis import per_student, scenario
+from campuspulse.source_analysis import compare_sources, source_trend
 from campuspulse.models import AnalysisPlan, CalculationResult, Caveat, Dataset
 from campuspulse.validation import validate_plan
 
@@ -33,6 +34,8 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
     warnings = list(dataset.warnings)
     frame = dataset.frame.copy()
     unit = "observations" if plan.aggregation == "count" else dataset.units.get(plan.metric, "")
+    if plan.metric == "kwh_per_student":
+        unit = "kWh/student-month"
     trace = [
         f"Metric: {plan.metric}; aggregation: {plan.aggregation}; average basis: {plan.average_basis}."
     ]
@@ -63,7 +66,13 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
         }
         # Never present free-form model text as a verified factual explanation.
         return unavailable(messages[plan.intent], plan.intent)
-    if plan.metric not in frame:
+    if "source_id" in frame:
+        selected_sources = plan.sources or list(dict.fromkeys(frame.source_id.tolist()))
+        frame = frame.loc[frame.source_id.isin(selected_sources)].copy()
+        trace.append("Sources used: " + ", ".join(
+            f"{source_id} ({frame.loc[frame.source_id.eq(source_id), 'source_label'].iloc[0]})"
+            for source_id in selected_sources if frame.source_id.eq(source_id).any()))
+    if plan.metric not in frame and not (plan.intent == "compare_sources" and plan.metric == "kwh_per_student"):
         message = f"The dataset does not contain {plan.metric}."
         if plan.metric == "electricity_cost_inr":
             message += " Cost requires recorded cost values or a validated tariff calculation; consumption alone is insufficient."
@@ -97,6 +106,11 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             )
         frame = frame.loc[frame["month"].isin(plan.periods)].copy()
 
+    if plan.intent == "compare_sources":
+        return compare_sources(frame, plan, warnings, trace, unit)
+    if plan.intent == "trend" and plan.group_by_source and "source_id" in frame:
+        return source_trend(frame, plan, warnings, trace, unit)
+
     # Occupancy is a monthly headcount, not an additive flow like electricity.
     # For an unqualified total or building comparison, use the latest MONTH
     # across the selected data so that the same students are not counted six
@@ -127,6 +141,12 @@ def calculate(dataset: Dataset, plan: AnalysisPlan) -> CalculationResult:
             )
         )
     if plan.intent == "per_student":
+        if "source_id" in frame and frame.source_id.nunique() > 1:
+            result = compare_sources(frame, AnalysisPlan(
+                intent="compare_sources", metric="kwh_per_student", aggregation="mean",
+                group_by=["building_name"], sources=plan.sources), warnings, trace, unit)
+            result.plan = plan
+            return result
         return per_student(frame, plan, warnings, trace)
     if plan.intent == "scenario":
         return scenario(frame, plan, warnings, trace)

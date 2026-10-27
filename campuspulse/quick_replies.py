@@ -72,8 +72,18 @@ def is_report_overview_request(question: str) -> bool:
     return False
 
 
-def report_summary(dataset: Dataset) -> str:
+def report_summary(dataset: Dataset, question: str = "") -> str:
     """Report-wide factual overview derived exclusively from confirmed rows."""
+    if "source_id" in dataset.frame and dataset.frame.source_id.nunique() > 1:
+        parts = ["Report-by-report overview (sources are not merged or deduplicated):"]
+        for sid, rows in dataset.frame.groupby("source_id", sort=False):
+            total = rows.electricity_kwh.sum(min_count=1)
+            label = rows.source_label.iloc[0]
+            parts.append(f"{label} ({sid}): {len(rows)} readings, "
+                         f"{rows.month.min()} to {rows.month.max()}, "
+                         f"{total:,.0f} kWh." if pd.notna(total) else f"{label}: no observed kWh.")
+        parts.append("If the same building/month appears in multiple files, totals may overlap. Compare sources instead of adding them blindly.")
+        return "\n".join(parts)
     info = overview(dataset)
     total = info["total"]
     total_text = f"{total:,.0f} kWh" if pd.notna(total) else "unavailable"
@@ -137,6 +147,19 @@ def report_summary(dataset: Dataset) -> str:
         "These are observed totals only. Missing values are not treated as zero; "
         "usage alone cannot establish waste, efficiency or causes."
     )
+    q = _normalise(question)
+    simple = any(v in q for v in ("easy", "simple", "simplify", "class 5", "asaan", "aasaan"))
+    short = any(v in q for v in ("short", "brief", "one line", "concise"))
+    hinglish = any(v in q for v in ("hinglish", "hindi", "mein", "me ", "samjha", "btao"))
+    if simple or short:
+        pieces = [f"{info['buildings']} buildings used {total_text} between {period_text}.",
+                  f"The highest was {high_text}."]
+        if dataset.custom_tariff_inr_per_kwh is not None:
+            pieces.append(f"At ₹{dataset.custom_tariff_inr_per_kwh:g} per unit, estimated cost is ₹{float(dataset.frame.electricity_cost_inr.sum(min_count=1)):,.0f} (not an actual bill).")
+        if hinglish:
+            pieces = [f"{period_text} ke beech {info['buildings']} buildings ne {total_text} electricity use ki.",
+                      f"Sabse zyada {high_text} ne use ki."] + pieces[2:]
+        return "\n".join(pieces)
     return "\n".join(lines)
 
 
@@ -149,5 +172,5 @@ def quick_reply(question: str, dataset: Dataset) -> str | None:
             "or calculate electricity usage."
         )
     if is_report_overview_request(question):
-        return report_summary(dataset)
+        return report_summary(dataset, question)
     return None

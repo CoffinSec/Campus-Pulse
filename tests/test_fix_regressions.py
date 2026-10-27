@@ -58,7 +58,7 @@ def test_response_skips_thinking_part_and_keeps_complete_json(monkeypatch):
                 }]
             })
     monkeypatch.setattr(httpx, 'Client', FakeHttpClient)
-    settings = replace(Settings(), gemini_api_key='private-test-key')
+    settings = replace(Settings(), provider='gemini', gemini_api_key='private-test-key')
     answer = GemmaClient(settings).plan_json('system', '{}')
     assert json.loads(answer)['intent'] == 'aggregate'
     assert 'key=' not in calls[0][0] and 'private-test-key' not in calls[0][0]

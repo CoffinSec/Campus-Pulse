@@ -2,7 +2,7 @@
 
 **Understand campus electricity. See the calculation. Follow the evidence.**
 
-Turn a campus PDF or CSV into a clear overview, useful comparisons and answers you can trace back to the original readings. Ask questions in English, Hindi or Hinglish, then explore the chart, formula and source rows together.
+Turn campus PDFs and CSVs into a clear overview, useful comparisons and answers you can trace back to the original readings. Review multiple reports, ask questions in English, Hindi or Hinglish, then explore the chart, formula and source rows together.
 
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B?logo=streamlit&logoColor=white)
@@ -12,7 +12,7 @@ Turn a campus PDF or CSV into a clear overview, useful comparisons and answers y
 
 ![CampusPulse upload screen showing the guided workflow and sample reports](docs/screenshots/landing.png)
 
-*Upload-screen preview from an earlier UI revision. The current app includes further layout and custom-rate improvements.*
+*Upload-screen preview from an earlier UI revision. The current app includes multi-file upload and a high-contrast burgundy theme with distinct chart colours.*
 
 Built for **Hacktoberfest Hackday 2026 · Track 1 — Best Use of Gemma 4 · PS 03 — Community and Environmental Data Intelligence**.
 
@@ -29,6 +29,7 @@ Gemma helps interpret the question. Python performs the calculation. The app sho
 | Task | What you see |
 |---|---|
 | Understand a report | Total electricity, building count, months covered, highest-use building and a trend before asking a question |
+| Compare reports | Up to five files per session, individual review, source selection and comparisons with file-specific evidence |
 | Compare buildings and months | Rankings with highlighted results, labelled bars, grouped comparisons and changes |
 | Compare usage per student | Ratios based on available student counts, with named warnings when a building cannot be compared |
 | Review occupancy | A headcount snapshot for the latest selected month, rather than adding the same students across months |
@@ -43,9 +44,9 @@ Follow-up questions such as **“and in May?”** use the previous validated pla
 
 **Upload → Review → Ask → Calculate → Verify**
 
-1. **Upload** a searchable PDF table or CSV.
-2. **Review** the extracted table, column meanings and units before confirming.
-3. **Ask** a question, or choose a manual calculation.
+1. **Upload** searchable PDF tables or CSVs, up to five files by default.
+2. **Review** each file's extracted table, column meanings and units before confirming it separately.
+3. **Ask** a question about selected reports, or choose a manual calculation.
 4. **Calculate** using predefined Python operations on the confirmed data.
 5. **Verify** the chart, arithmetic, source rows and visible caveats.
 
@@ -56,20 +57,25 @@ The calculation engine executes predefined operations; it does not execute model
 Start with the included [sample PDF](data/campus_electricity_sample.pdf) or [sample CSV](data/campus_electricity_sample.csv). Both contain the same fictional campus readings.
 
 1. Open the app using the [setup guide](docs/SETUP.md).
-2. Select **Load synthetic PDF** or upload a file.
-3. Review the column mapping and select **Confirm dataset**.
+2. Upload the sample PDF or CSV. For a report comparison, select **Load two synthetic samples**.
+3. Review the column mapping and select **Confirm dataset** for each file. Select the reports you want to analyse under **Sources to use**.
 4. Explore the overview, then try a question:
 
    - “Which building consumed the most electricity in June 2026?”
    - “Compare May and June 2026.”
    - “Show the monthly electricity trend.”
+   - “Compare the two reports by building.”
    - “Compare kWh per student in June.”
    - “What if the hostels cut usage by 10% in June?”
    - “जून 2026 में किस इमारत ने सबसे अधिक बिजली का उपयोग किया?”
 
 5. Read **How this was calculated** and save the answer as a report or image.
 
+For an immediate two-file comparison, use **Compare reports** in the manual calculator. Overlapping reports remain separate: pooled totals can count the same readings twice, and the app flags this risk.
+
 ### Numbers you can check
+
+These results use only the original sample report. Select that source alone when you have loaded multiple files.
 
 | Sample result | Value |
 |---|---|
@@ -101,23 +107,23 @@ These are estimates, not utility bills: fixed charges, taxes and tiered tariffs 
 | Electricity cost | Recorded cost in INR | Optional |
 | Department or building ID | Additional categories | Optional |
 
-Column aliases are suggested during review. One observation per building and month is expected. Missing values remain missing, zero remains a measurement, and duplicate building/month records must be resolved before analysis. Convert Wh or MWh to kWh before uploading.
+Column aliases are suggested during review. One observation per building and month is expected within each file. Missing values remain missing, zero remains a measurement, and duplicates within a file must be resolved before analysis. Matching observations in different files stay separate, with source labels and an overlap warning. Convert Wh or MWh to kWh before uploading.
 
-**PDF support:** searchable tables, especially clear grid layouts. Scanned PDFs need OCR outside the app. Multiple tables are detected, but one table is analysed at a time; use a consolidated CSV for a report split across pages. The default upload limit is **10 MB**.
+**PDF support:** searchable tables, especially clear grid layouts. Scanned PDFs need OCR outside the app. Multiple tables are detected, but one table is selected per file; use a consolidated CSV for a report split across pages. Defaults are **five files per session**, **10 MB per file** and **30 pages per PDF**.
 
 ## AI and data handling
 
-The current model client sends requests to **Google's hosted Gemini API**, using the configured Gemma model. It requires an API key, internet access and available quota. Local Ollama settings remain in the repository, but the current client does not route inference through them.
+The model client supports **Ollama** and **Google's hosted Gemini API**, using the configured Gemma model. Ollama requires a running server and an installed model. Google's API requires a key, internet access and available quota. The environment template selects Google's hosted service.
 
-Planning sends the question, schema, category labels and previous validated plan. Explanation requests send computed facts and caveats. These paths do not send the uploaded file itself or its full table of readings. Labels and questions can still contain sensitive information.
+Planning sends the question, schema, source/category labels and previous validated plan. Explanation requests send computed facts and caveats. These paths do not send the uploaded file itself or its full table of readings. Labels and questions can still contain sensitive information.
 
-**Current UI limitation:** the connection panel labels inference as local, although the client calls Google's API, and the current question flow does not require a separate consent checkbox. Treat AI requests as remote processing. A “connected” badge checks for a configured key; it does not prove a successful API call.
+The connection panel identifies the provider, and remote inference requires the processing checkbox before a question is sent. **Gemma configured** does not prove successful inference: the hosted check confirms a key is present, while the Ollama check looks for the requested model.
 
 Uploads and results are held in the app session. Keep API keys in your local environment file and never commit them. See the [setup and verification guide](docs/SETUP.md) for configuration details.
 
 ## Project status
 
-CampusPulse is a working prototype with known issues. The latest recorded offline check of the imported application produced **199 passed, 12 failed and 14 skipped tests**, with **4 lint issues**. The suite is not fully passing, and those checks do not establish live model quality, API availability or laptop performance.
+CampusPulse is a working prototype with known issues. The latest recorded offline check of the imported application produced **223 passed, 4 failed and 17 skipped tests**, with **17 lint issues**. The four failing UI tests still look for a removed single-sample button; the new multi-source tests passed. The suite is not fully passing, and those checks do not establish live model quality, API availability or laptop performance.
 
 The project supports electricity analysis, headcount comparisons and flat-rate cost estimates. OCR, automatic table merging, utility billing rules and causal explanations remain outside its scope. Consumption alone does not prove waste or inefficiency.
 

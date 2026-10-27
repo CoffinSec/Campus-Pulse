@@ -28,3 +28,19 @@ Offline tests: `python -m pytest -q tests/test_custom_tariff.py`.
 Full offline smoke: `python -m scripts.smoke_test`.
 
 The hosted model and interactive Streamlit browser were not exercised in the build environment.
+
+
+## Multiple files
+
+Each confirmed source retains original kWh and billing fields in memory. Choose **Other — custom rate** under electricity cost to apply the same rate to **every confirmed source**. The combined estimated-cost view includes source ID and label. Changing the global rate rebuilds the dataset from original normalized source data and clears previous answers, preventing stale cost comparisons. Do not add cost totals across overlapping reports without checking duplicate coverage; the UI warns when a building/month exists in multiple sources.
+
+
+## Multiple confirmed files
+
+The active rate is **one session-global rate**, not a rate per source. After
+confirming 2+ files, select `Other — custom rate` in the global rate panel,
+enter INR/kWh and click **Apply electricity rate to all data**. Rebuilding from
+original validated datasets applies the rate consistently to every source and
+clears stale answer history. Source comparison reports estimated INR amounts,
+not actual bills. Original tariff/cost data remain in source-specific datasets;
+with no global override, only mapped recorded amounts are used.

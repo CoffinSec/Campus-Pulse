@@ -1,8 +1,4 @@
-"""Presentation helpers. Uploaded names and model text are always HTML-escaped.
-
-UI polish intentionally retains CampusPulse's original green/off-white palette.
-All styles are cosmetic: dataset, model, and numerical operations are untouched.
-"""
+"""Presentation helpers. Uploaded names and model text are always HTML-escaped."""
 
 from html import escape
 
@@ -10,238 +6,63 @@ import streamlit as st
 
 CSS = """
 <style>
-/* Original CampusPulse palette — intentionally unchanged. */
-:root {
-  --cp-background: #f6f8f7;
-  --cp-surface: #fff;
-  --cp-soft: #f0f7f4;
-  --cp-soft-2: #f0f6f3;
-  --cp-border: #dce6e3;
-  --cp-border-strong: #8cb8ad;
-  --cp-accent: #0b7869;
-  --cp-accent-dark: #164e43;
-  --cp-ink: #193f35;
-  --cp-muted: #526d67;
-}
-
-.stApp { background: var(--cp-background); }
-.stMainBlockContainer {
-  max-width: 1200px;
-  padding-top: 2rem;
-  padding-bottom: 6rem;
-}
-.stMainBlockContainer > div { gap: 1.15rem; }
-h1 { letter-spacing: -.055em; font-weight: 750 !important; line-height: 1.12 !important; }
-h2, h3 { letter-spacing: -.025em; line-height: 1.25 !important; }
-h2 { font-size: clamp(1.35rem, 2.1vw, 1.75rem) !important; }
-h3 { font-size: clamp(1.18rem, 1.75vw, 1.4rem) !important; }
-[data-testid="stCaptionContainer"] { line-height: 1.55; }
-[data-testid="stMarkdownContainer"] p { line-height: 1.6; }
-
-/* Hero: same original background and type, better hierarchy/alignment. */
-.st-key-campuspulse_header {
-  padding: .65rem 0 1.15rem;
-  border-bottom: 1px solid var(--cp-border);
-}
-.st-key-campuspulse_header h1 { margin: .15rem 0 .35rem; }
-.st-key-campuspulse_header [data-testid="stColumn"]:last-child {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-.st-key-campuspulse_header [data-testid="stPopover"] button { width: 100%; }
-
-/* More useful, clearly-scanned step navigation. */
-.cp-steps {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: .7rem;
-  margin: .1rem 0 .5rem;
-}
-.cp-step {
-  display: flex;
-  align-items: center;
-  gap: .7rem;
-  border-top: 3px solid #d6e2dd;
-  padding: .85rem .15rem .35rem;
-  color: var(--cp-muted);
-  font-size: .88rem;
-  line-height: 1.35;
-}
-.cp-step.active { border-color: var(--cp-accent); color: var(--cp-accent-dark); font-weight: 700; }
-.cp-step.done { border-color: #88b9a8; }
-.cp-step span {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 1.8rem;
-  height: 1.8rem;
-  border-radius: 9px;
-  background: var(--cp-soft);
-  font-size: .73rem;
-  font-weight: 750;
-  color: var(--cp-muted);
-}
-.cp-step.active span { background: var(--cp-accent); color: var(--cp-surface); }
-.cp-step.done span { color: var(--cp-accent); }
-
-/* Cohesive card and form surfaces (same colours as the original app). */
-[data-testid="stVerticalBlockBorderWrapper"] {
-  border-radius: 16px;
-  border-color: var(--cp-border);
-}
-.st-key-upload_section [data-testid="stVerticalBlockBorderWrapper"],
-.st-key-source_card [data-testid="stVerticalBlockBorderWrapper"] { border-radius: 18px; }
-.st-key-upload_section [data-testid="stFileUploaderDropzone"] {
-  min-height: 152px;
-}
-.st-key-upload_section [data-testid="stColumn"]:last-child { min-width: 0; }
-[data-testid="stFileUploaderDropzone"] {
-  background: var(--cp-soft);
-  border: 1px dashed var(--cp-border-strong);
-  border-radius: 12px;
-  min-height: 150px;
-}
-[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--cp-accent); }
-[data-testid="stForm"] {
-  border: 1px solid var(--cp-border);
-  border-radius: 16px;
-  padding: 1.15rem;
-  background: var(--cp-surface);
-}
-[data-testid="stExpander"] { border-radius: 12px; overflow: hidden; }
-[data-testid="stExpander"] details { border-color: var(--cp-border); }
-[data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
-[data-testid="stAlert"] { border-radius: 12px; }
-
-/* Dashboard — aligned metrics, consistent whitespace and readable long names. */
-.st-key-overview_panel { margin-top: .25rem; }
-.st-key-overview_panel h2 { margin-bottom: .2rem; }
-[data-testid="stMetric"] {
-  background: var(--cp-surface);
-  border: 1px solid var(--cp-border);
-  border-radius: 14px;
-  padding: 1.05rem 1.1rem;
-  height: 100%;
-  min-height: 115px;
-}
-[data-testid="stMetricValue"] {
-  font-size: clamp(1.35rem, 2.25vw, 2rem);
-  letter-spacing: -.035em;
-  line-height: 1.18;
-}
-[data-testid="stMetricValue"] > div { white-space: normal; overflow-wrap: anywhere; }
-[data-testid="stMetricLabel"] { color: var(--cp-muted); line-height: 1.4; }
-.st-key-overview_panel [data-testid="stPlotlyChart"] { border-radius: 12px; overflow: hidden; }
-.st-key-overview_panel [data-testid="stCaptionContainer"] { max-width: 100ch; }
-
-/* Buttons, inputs and question prompts — no palette changes. */
-[data-testid="stButton"] button,
-[data-testid="stDownloadButton"] button {
-  border-radius: 10px;
-  min-height: 43px;
-  transition: border-color .14s ease, background-color .14s ease, transform .14s ease;
-}
-[data-testid="stButton"] button p,
-[data-testid="stDownloadButton"] button p { white-space: normal; overflow-wrap: anywhere; }
-[data-testid="stButton"] button:not(:disabled):hover,
-[data-testid="stDownloadButton"] button:not(:disabled):hover { border-color: var(--cp-accent); }
-[data-testid="stButton"] button:focus-visible,
-[data-testid="stDownloadButton"] button:focus-visible,
-[data-testid="stFileUploaderDropzone"] button:focus-visible {
-  outline: 3px solid var(--cp-accent);
-  outline-offset: 3px;
-}
-.st-key-question_suggestions [data-testid="stButton"] button {
-  min-height: 69px;
-  height: 100%;
-  width: 100%;
-  padding: .8rem 1rem;
-  background: var(--cp-surface);
-  border: 1px solid var(--cp-border);
-  text-align: left;
-  justify-content: flex-start;
-  font-weight: 600;
-  line-height: 1.35;
-}
-.st-key-question_suggestions [data-testid="stButton"] button:not(:disabled):hover {
-  background: var(--cp-soft);
-  border-color: var(--cp-accent);
-  transform: translateY(-1px);
-}
-.st-key-question_suggestions [data-testid="stHorizontalBlock"] { row-gap: .55rem; }
-[data-testid="stChatInput"] { border-radius: 13px; }
-
-/* Conversation cards — results first, working available but not overwhelming. */
-[data-testid="stChatMessage"] {
-  background: var(--cp-surface);
-  border: 1px solid var(--cp-border);
-  border-radius: 16px;
-  padding: 1.1rem 1.25rem;
-  margin: .45rem 0;
-}
-[data-testid="stChatMessage"] [data-testid="stMarkdownContainer"] p { line-height: 1.7; }
-[data-testid="stChatMessage"] [data-testid="stCaptionContainer"] { color: var(--cp-muted); }
-.cp-answer {
-  font-size: clamp(1.25rem, 2.3vw, 1.7rem);
-  line-height: 1.45;
-  font-weight: 700;
-  letter-spacing: -.025em;
-  color: var(--cp-ink);
-  margin: .4rem 0 .8rem;
-  overflow-wrap: anywhere;
-}
-.cp-formula {
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: .84rem;
-  line-height: 1.7;
-  background: var(--cp-soft-2);
-  border-left: 3px solid #7cae9a;
-  border-radius: 0 8px 8px 0;
-  padding: .65rem .85rem;
-  margin: .4rem 0;
-  overflow-wrap: anywhere;
-  white-space: pre-wrap;
-}
-.cp-eyebrow {
-  font-size: .72rem;
-  font-weight: 750;
-  letter-spacing: .13em;
-  text-transform: uppercase;
-  color: #247566;
-  margin: .3rem 0 .5rem;
-}
-.cp-lead { font-size: 1.15rem; color: #46655d; line-height: 1.6; margin-bottom: .65rem; }
-.cp-file { font-weight: 650; color: #234d41; overflow-wrap: anywhere; margin: .2rem 0; }
-.cp-help { font-size: .84rem; color: var(--cp-muted); line-height: 1.6; }
-
-/* Preserve familiar controls while keeping narrow screens usable. */
-@media (max-width: 880px) {
-  .stMainBlockContainer { padding-top: 1.4rem; }
-  .st-key-overview_panel [data-testid="stMetric"] { min-height: 105px; }
-  [data-testid="stMetricValue"] { font-size: 1.55rem; }
-}
-@media (max-width: 640px) {
-  .stMainBlockContainer { padding: 1.1rem .85rem 5rem; }
-  .stMainBlockContainer > div { gap: .9rem; }
-  .st-key-campuspulse_header { padding: .1rem 0 .7rem; }
-  .st-key-campuspulse_header h1 { font-size: 2.45rem !important; }
-  .cp-lead { font-size: 1rem; }
-  .cp-steps { gap: .35rem; }
-  .cp-step { gap: .3rem; font-size: .72rem; align-items: flex-start; padding-top: .55rem; }
-  .cp-step span { width: 1.45rem; height: 1.45rem; font-size: .64rem; border-radius: 7px; }
-  [data-testid="stChatMessage"] { padding: .75rem .8rem; }
-  [data-testid="stMetric"] { min-height: 95px; padding: .85rem; }
-  [data-testid="stMetricValue"] { font-size: 1.5rem; }
-  [data-testid="stForm"] { padding: .8rem; }
-  .st-key-question_suggestions [data-testid="stButton"] button { min-height: 52px; padding: .7rem .8rem; }
-  .cp-answer { font-size: 1.24rem; }
-}
-@media (prefers-reduced-motion: reduce) {
-  [data-testid="stButton"] button,
-  [data-testid="stDownloadButton"] button { transition: none; transform: none !important; }
-}
+:root { --champagne:#EFE1CE; --rose-gold:#B9857C; --black-cherry:#721D35;
+ --black-cherry-dark:#42121F; --near-black:#1C0B12;
+ --accent-cyan:#45D7D1; --accent-gold:#F4CB72; --accent-lavender:#B7A2FF;
+ --accent-coral:#FF9388; --accent-mint:#88E0AC; }
+.stApp {background: radial-gradient(ellipse at top right,#42121F,#1C0B12 62%) !important;
+ color:var(--champagne); }
+.stMainBlockContainer {max-width:1280px;padding-top:2rem;padding-bottom:5rem;}
+html, body, p, label, .stMarkdown {color:var(--champagne);}
+h1,h2,h3 {color:var(--champagne)!important;letter-spacing:-.035em;}
+h1 {font-family:Georgia,serif;font-weight:650!important;font-size:clamp(2.2rem,4.5vw,3.6rem)!important;}
+h2,h3 {font-family:Georgia,serif;}
+[data-testid="stMetric"] {background:linear-gradient(120deg,#51202D,#351721);
+ border:1px solid #C58C94;border-radius:16px;padding:1rem 1.1rem;height:100%;}
+[data-testid="stMetricValue"] {color:#EFE1CE;font-size:clamp(1.25rem,2.5vw,2rem);}
+[data-testid="stMetricLabel"] {color:#F0C1B9;}
+[data-testid="stVerticalBlockBorderWrapper"], [data-testid="stChatMessage"] {
+ background:linear-gradient(145deg,#381A27,#26111C);border:1px solid #885268;
+ border-radius:17px;padding:.8rem;}
+[data-testid="stFileUploaderDropzone"] {background:#3E1B29;border:2px dashed #F4CB72;
+ border-radius:13px;min-height:145px;}
+[data-testid="stButton"] button,[data-testid="stDownloadButton"] button {
+ border-radius:12px;min-height:42px;border:1px solid #C9939C;
+ background:#582537;color:#FFF6E9;}
+[data-testid="stButton"] button:hover,[data-testid="stDownloadButton"] button:hover {
+ border-color:#F4CB72;background:#721D35;color:#FFFFFF;}
+[data-testid="stButton"] button[kind="primary"] {background:#F4CB72;color:#1C0B12;border-color:#F4CB72;font-weight:700;}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,
+[data-testid="stChatInput"] textarea {background:#321725;color:#FFF6E9;border-color:#B9857C;}
+[data-testid="stChatMessage"] {padding:1.2rem;}
+[data-testid="stButton"] button p {white-space:normal;overflow-wrap:anywhere;}
+.st-key-question_suggestions button {min-height:64px;text-align:left;}
+[data-testid="stSidebar"] {background:#27121C;border-right:1px solid #885268;}
+[data-testid="stTabs"] [role="tab"][aria-selected="true"] {color:#45D7D1;border-bottom:2px solid #45D7D1;}
+[data-testid="stSelectbox"] [data-baseweb="select"],
+[data-testid="stMultiSelect"] [data-baseweb="select"] {background:#321725;border-color:#B9857C;}
+[data-testid="stMetricDelta"] {color:#88E0AC;}
+[data-testid="stCaptionContainer"], .stCaption {color:#E7BCB7!important;}
+[data-testid="stFileUploaderDropzone"] button {border:1px solid #F4CB72!important;}
+button:focus-visible, input:focus-visible, textarea:focus-visible {outline:2px solid #45D7D1!important;outline-offset:2px;}
+[data-testid="stAlert"] {border-radius:12px;}
+.cp-eyebrow {font-size:.75rem;font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+ color:#B9857C;margin:.3rem 0 .5rem;}
+.cp-lead {font-size:1.17rem;color:#DAB8AE;line-height:1.6;margin-bottom:.7rem;}
+.cp-steps {display:grid;grid-template-columns:repeat(3,1fr);gap:.8rem;margin:.5rem 0 1.2rem;}
+.cp-step {border-top:3px solid #42121F;padding:.65rem;color:#B9857C;font-size:.9rem;}
+.cp-step.active {border-color:#45D7D1;color:#FFFFFF;font-weight:700;}
+.cp-step.done {border-color:#F4CB72;color:#EFE1CE;}
+.cp-step span {font-size:.7rem;margin-right:.55rem;}
+.cp-answer {font-size:clamp(1.2rem,2.4vw,1.7rem);font-weight:650;
+ line-height:1.5;color:#EFE1CE;overflow-wrap:anywhere;}
+.cp-formula {font-family:ui-monospace,Consolas,monospace;font-size:.84rem;line-height:1.7;
+ background:#42121F;border-left:3px solid #B9857C;border-radius:0 9px 9px 0;
+ padding:.65rem .85rem;white-space:pre-wrap;overflow-wrap:anywhere;}
+.cp-file {font-weight:650;color:#EFE1CE;overflow-wrap:anywhere;}
+.cp-help {font-size:.84rem;color:#CBAAA2;line-height:1.6;}
+@media(max-width:700px){.stMainBlockContainer{padding:1rem .8rem 5rem;}
+ .cp-steps{gap:.3rem}.cp-step{font-size:.72rem}[data-testid="stChatMessage"]{padding:.6rem;}}
 </style>
 """
 
@@ -254,20 +75,10 @@ def styled_text(text: str, kind: str) -> None:
 
 
 def progress_steps(stage: int) -> None:
-    """Display the three upload-to-answer stages as an accessible progress strip."""
     labels = ["Add a report", "Check your data", "Explore & ask"]
     parts = []
     for index, label in enumerate(labels):
         state = "active" if index == stage else "done" if index < stage else ""
         number = "✓" if index < stage else f"0{index + 1}"
-        current = ' aria-current="step"' if index == stage else ""
-        parts.append(
-            f'<div class="cp-step {state}"{current}>'
-            f'<span aria-hidden="true">{number}</span>{label}</div>'
-        )
-    st.markdown(
-        '<nav class="cp-steps" aria-label="CampusPulse progress">'
-        + "".join(parts)
-        + "</nav>",
-        unsafe_allow_html=True,
-    )
+        parts.append(f'<div class="cp-step {state}"><span>{number}</span>{label}</div>')
+    st.markdown('<div class="cp-steps">' + "".join(parts) + "</div>", unsafe_allow_html=True)

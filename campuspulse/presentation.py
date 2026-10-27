@@ -8,6 +8,7 @@ from campuspulse.models import CalculationResult
 
 METRICS = {
     "electricity_kwh": "electricity usage",
+    "kwh_per_student": "electricity per student",
     "electricity_cost_inr": "electricity cost",
     "occupancy": "student count",
     "tariff_inr_per_kwh": "electricity tariff",
@@ -25,6 +26,7 @@ def describe_plan(result: CalculationResult, ai: bool = True) -> str:
     plan = result.plan
     names = {
         "ranking": "ranking",
+        "compare_sources": "report comparison",
         "trend": "monthly trend",
         "aggregate": "summary",
         "period_comparison": "period comparison",
@@ -47,6 +49,9 @@ def describe_plan(result: CalculationResult, ai: bool = True) -> str:
                 "max": "maximum",
             }[plan.aggregation]
         )
+    if plan.sources:
+        labels = dict(zip(result.evidence.get("source_id", []), result.evidence.get("source_label", [])))
+        pieces.append("sources: " + ", ".join(f"{labels.get(s, s)} ({s})" for s in plan.sources))
     if plan.periods:
         pieces.append(" → ".join(period_label(p) for p in plan.periods))
     for item in plan.filters:
@@ -100,6 +105,19 @@ def calculation_lines(result: CalculationResult) -> list[str]:
     frame, plan = result.evidence, result.plan
     if plan.intent == "scenario":
         return result.working + ["Source: " + source_reference(frame)]
+    if plan.intent == "compare_sources":
+        lines = ["Files: " + ", ".join(f"{r.source_label} ({r.source_id})"
+                 for r in frame[["source_id", "source_label"]].drop_duplicates().itertuples(index=False)),
+                 "Calculation: each file/group calculated independently. Change = new - old; percentage = change / old × 100 (undefined if old is zero)."]
+        if result.plan.metric == "kwh_per_student":
+            lines.append("Per-student = sum electricity kWh / sum occupancy (student-months over multiple months).")
+        for row in result.breakdown.head(10).itertuples(index=False):
+            delta = "unavailable" if pd.isna(row.change) else f"{row.change:+,.2f}"
+            lines.append(f"{row.group}: {row.from_source} → {row.to_source} = {delta} {result.unit}.")
+        return lines + ["Original observations: " + source_reference(frame)]
+    if result.plan.group_by_source and "source_id" in result.values:
+        return ["Source-specific monthly trend; each report calculated independently.",
+                "Original observations: " + source_reference(frame)]
     lines = []
     if plan.metric == "electricity_cost_inr" and any(
         w.code == "estimated_electricity_cost" for w in result.warnings

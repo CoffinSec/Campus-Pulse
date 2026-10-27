@@ -77,6 +77,36 @@ def generate(directory: Path = ROOT / "data") -> None:
     )
     doc.save(directory / "campus_electricity_sample.pdf", deflate=True)
     doc.close()
+    # A second 2026 H2 fictional dataset plus an overlapping-month version.
+    for suffix, months in (("_h2", range(7, 13)), ("_overlap", range(1, 7))):
+        variant_rows = []
+        for month in months:
+            for building, values in BUILDINGS.items():
+                # Deliberately different readings, so comparisons have real deltas.
+                reference = values[(month - 1) % 6]
+                variant_rows.append([building, f"2026-{month:02d}",
+                                     int(round(reference * 1.07 + 50)), OCCUPANCY[building]])
+        with (directory / f"campus_electricity_sample{suffix}.csv").open(
+            "w", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file, lineterminator="\n")
+            writer.writerow(headers)
+            writer.writerows(variant_rows)
+        pdf = pymupdf.open()
+        sheet = pdf.new_page(width=595, height=842)
+        sheet.insert_text((40, 35), f"CampusPulse | Synthetic report {suffix}", fontsize=15)
+        sheet.insert_text((40, 55), "SYNTHETIC DEMONSTRATION DATA - NOT OFFICIAL", fontsize=10)
+        all_variant_rows = [headers, *variant_rows]
+        for index, row in enumerate(all_variant_rows):
+            y = 95 + index * 21
+            for col, value in enumerate(row):
+                sheet.insert_text((xs[col] + 5, y + 14), str(value), fontsize=9)
+        for x in xs:
+            sheet.draw_line((x, 95), (x, 95 + len(all_variant_rows) * 21), width=.6)
+        for i in range(len(all_variant_rows) + 1):
+            sheet.draw_line((xs[0], 95 + i * 21), (xs[-1], 95 + i * 21), width=.6)
+        sheet.insert_text((40, 785), "Invented values only; no official campus data.", fontsize=9)
+        pdf.save(directory / f"campus_electricity_sample{suffix}.pdf", deflate=True)
+        pdf.close()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,10 @@
 """Real Streamlit state/widget execution; inference readiness is mocked offline."""
+import pytest
 
 from pathlib import Path
 from unittest.mock import patch
 
+pytest.importorskip("streamlit", reason="Streamlit UI tests require the runtime")
 from streamlit.testing.v1 import AppTest
 
 from campuspulse.gemma_client import ModelStatus

@@ -33,24 +33,39 @@ class GemmaClient:
         return key
 
     def check(self) -> ModelStatus:
-        key = self._get_clean_key()
         model = self.settings.model_name
         kind = self.settings.endpoint_label
-
-        if not key:
-            return ModelStatus(
-                False,
-                "Set GEMINI_API_KEY in .env, then restart the application.",
-                model,
-                kind,
-            )
-
-        return ModelStatus(
-            True,
-            "Connected; local Gemma 4 26B engine is running and ready.",
-            model,
-            kind,
-        )
+        if self.settings.provider == "gemini":
+            if not self._get_clean_key():
+                return ModelStatus(False, "Set GEMINI_API_KEY in Secrets/.env.", model, kind)
+            if self.client is not None:
+                try:
+                    self.client.models.get(model=self.settings.gemini_model)
+                except Exception as exc:  # noqa: BLE001 - third-party client boundary
+                    return ModelStatus(False, f"Hosted model check failed: {type(exc).__name__}", model, kind)
+            # A key being present does not establish a successful model connection.
+            return ModelStatus(True, "API key configured. Hosted inference requires internet and quota; test by asking a question.", model, kind)
+        if self.client is not None:
+            try:
+                models = self.client.list().get("models", [])
+                if not isinstance(models, list) or any(not isinstance(m, dict) for m in models):
+                    return ModelStatus(False, "invalid model list returned by Ollama.", model, kind)
+                matches = [m.get("model", m.get("name")) for m in models]
+                return ModelStatus(model in matches,
+                    "Ollama model found" if model in matches else "Requested Ollama model is not installed.",
+                    model, kind)
+            except Exception as exc:  # noqa: BLE001 - mocked/native model provider boundary
+                return ModelStatus(False, f"Ollama model check failed: {type(exc).__name__}", model, kind)
+        try:
+            with httpx.Client(timeout=3, trust_env=False) as client:
+                response = client.get(f"{self.settings.ollama_host}/api/tags")
+                response.raise_for_status()
+                models = [m.get("name", m.get("model")) for m in response.json().get("models", [])]
+            if model not in models:
+                return ModelStatus(False, f"Ollama is reachable but {model} is not installed.", model, kind)
+            return ModelStatus(True, "Ollama model found. Actual inference not yet tested.", model, kind)
+        except (httpx.HTTPError, ValueError):
+            return ModelStatus(False, "Ollama server is unavailable. Check the host and installed model.", model, kind)
 
     def plan_json(self, system: str, payload: str) -> str:
         return self._structured_json(system, payload, AnalysisPlan.model_json_schema())
@@ -59,11 +74,48 @@ class GemmaClient:
         return self._structured_json(system, payload, schema)
 
     def _structured_json(self, system: str, payload: str, schema: dict) -> str:
+        if self.settings.provider == "ollama":
+            if self.client is not None:
+                if not self.check().ready:
+                    raise AIError("Requested Ollama model not installed or model list invalid.")
+                try:
+                    response = self.client.chat(
+                        model=self.settings.ollama_model,
+                        messages=[{"role": "system", "content": system},
+                                  {"role": "user", "content": payload}],
+                        format=schema,
+                        options={"temperature": 0},
+                    )
+                    content = response["message"]["content"]
+                    return self._extract_json(content)
+                except httpx.TimeoutException as exc:
+                    raise AIError("Ollama inference timed out.") from exc
+                except Exception as exc:  # noqa: BLE001 - mocked/native provider boundary
+                    raise AIError(f"Ollama inference failed: {type(exc).__name__}.") from exc
+            try:
+                with httpx.Client(timeout=self.settings.ollama_timeout, trust_env=False) as http:
+                    response = http.post(f"{self.settings.ollama_host}/api/chat", json={
+                        "model": self.settings.ollama_model,
+                        "messages": [{"role": "system", "content": system},
+                                     {"role": "user", "content": payload}],
+                        "format": schema, "stream": False,
+                        "options": {"temperature": 0},
+                    })
+                    response.raise_for_status()
+                    return self._extract_json(response.json()["message"]["content"])
+            except (httpx.TimeoutException, httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+                raise AIError(f"Ollama inference failed ({type(exc).__name__}); confirm your model and server.") from exc
         key = self._get_clean_key()
         if not key:
             raise AIError("GEMINI_API_KEY is not set in .env.")
 
         model = self.settings.gemini_model
+        if self.client is not None:
+            try:
+                answer = self.client.models.generate_content(model=model, contents=system + "\n\n" + payload)
+                return self._extract_json(answer.text)
+            except Exception as exc:  # noqa: BLE001 - model SDK boundary
+                raise AIError(f"Hosted Gemma inference failed: {type(exc).__name__}.") from exc
 
         prompt = (
             f"{system}\n\n"

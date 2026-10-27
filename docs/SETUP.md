@@ -27,26 +27,27 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 .\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
-The app can load sample data and run manual calculations without an API key. Natural-language planning and AI explanations need the hosted service configured below. Python installation does not download a model.
+The app can load sample data and run manual calculations without an API key. Natural-language planning and AI explanations need either the hosted service below or a running Ollama server. Python installation does not download a model.
 
 The runtime dependencies are in [requirements.txt](../requirements.txt). The existing [lock file](../requirements-lock.txt) records an earlier environment and does not include every later addition, such as the Google SDK listed in the runtime requirements.
 
 ## Configure hosted inference
 
-The current [model client](../campuspulse/gemma_client.py) makes HTTP requests to Google's Gemini API. Obtain a key through [Google AI Studio](https://aistudio.google.com/apikey), verify that your account can access the model you choose, and edit your local `.env`:
+The [model client](../campuspulse/gemma_client.py) supports Google's Gemini API and Ollama. The environment template selects Google's API. Obtain a key through [Google AI Studio](https://aistudio.google.com/apikey), verify that your account can access the model you choose, and edit your local `.env`:
 
 ```dotenv
 GEMMA_PROVIDER=gemini
 GEMINI_API_KEY=replace_with_your_own_key
 GEMINI_MODEL=gemma-4-26b-a4b-it
 APP_TIMEZONE=Asia/Kolkata
+MAX_FILES=5
 ```
 
 The model identifier above is the repository's configured default, not a guarantee of availability for your account. Never commit `.env` or share an actual key in screenshots. `.gitignore` excludes environment files; `.env.example` is only a template. Restart Streamlit after changing configuration.
 
-Despite the app's current local-connection label, these requests go to Google. The current question flow also passes remote permission internally rather than displaying a separate consent gate. Use data you are comfortable sending to that service. The uploaded file is not sent as an attachment, but question text, schema labels, context and computed facts are transmitted.
+Hosted requests go to Google. The connection panel identifies the provider, and the app requires the remote-processing checkbox before sending a question. The uploaded file is not sent as an attachment, but question text, source/schema labels, context and computed facts are transmitted.
 
-Ollama configuration fields remain from earlier versions. Setting `GEMMA_PROVIDER=ollama` currently does not switch the model client to Ollama, so this guide does not present it as a working local-inference option.
+For Ollama, set `GEMMA_PROVIDER=ollama`, set `OLLAMA_HOST` to your running server and set `OLLAMA_MODEL` to the exact installed model tag. Verify the tag is available before downloading it. The server can run locally or remotely; a remote endpoint also requires processing consent. Neither provider was tested against a live model during this import.
 
 ## Check a real API request
 
@@ -56,9 +57,9 @@ With the virtual environment active:
 python -m scripts.check_model
 ```
 
-This command makes a live planning request and may consume API quota. It requires a valid key and available model. A successful request verifies that a reply was received; it does not prove every natural-language question will be interpreted correctly. The connection badge alone only reflects whether a key was supplied.
+This command makes a live planning request to the configured provider and may consume API quota. Hosted inference requires a valid key and available model; Ollama requires its server and model. A successful request verifies that a reply was received; it does not prove every natural-language question will be interpreted correctly. The hosted connection badge only reflects whether a key was supplied; the Ollama check looks for the installed model.
 
-The current client uses a 300-second HTTP timeout and permits up to 2,048 output tokens. The planner may retry an invalid plan once, and successful calculations can trigger a separate explanation call. Older Ollama timeout settings do not control this hosted request. For immediate exploration while the service is slow or unavailable, use the manual calculator.
+The hosted client uses a 300-second HTTP timeout and permits up to 2,048 output tokens. The planner may retry an invalid plan once, and successful calculations can trigger a separate explanation call. `OLLAMA_TIMEOUT_SECONDS` controls Ollama requests, not hosted requests. For immediate exploration while the service is slow or unavailable, use the manual calculator.
 
 ## Prepare a report
 
@@ -72,6 +73,8 @@ Academic Block A,2026-06,5600
 
 These readings are synthetic examples. Use one row per building and month. Electricity must be in kWh. Supported month formats include `2026-06`, `2026-06-15`, `June 2026` and `Jun 2026`; month names without a year require an explicit year during review.
 
+Upload up to five files by default; `MAX_FILES` accepts values from 1 to 10. Confirm each file separately and choose **Sources to use** before asking a question. Duplicate building/month rows within a file are rejected. Matching rows across files remain separate, so overlapping sources can double-count readings in pooled totals. Use **Compare reports** for a side-by-side comparison.
+
 Optional mappings include `building_id`, `department`, `occupancy`, `electricity_cost_inr` and `tariff_inr_per_kwh`. The custom-rate workflow derives estimated INR amounts only when you explicitly select a global rate; see the [rate guide](../CUSTOM_RATE_GUIDE.md). Recorded bill amounts and estimated costs are distinct.
 
 To recreate the fictional sample files:
@@ -80,7 +83,7 @@ To recreate the fictional sample files:
 python -m scripts.generate_demo_data
 ```
 
-This rewrites the bundled sample PDF and CSV.
+This rewrites the bundled sample PDFs and CSVs, including the second-half and overlapping-period variants.
 
 ## Run checks
 
@@ -95,7 +98,7 @@ python -m ruff format --check .
 python -m pip check
 ```
 
-The current imported version has known test and lint failures; the README records the last observed counts. Some provider tests still expect older client behavior. Earlier passing results in the historical validation document should not be treated as proof that the current suite passes.
+The current imported version has known test and lint failures; the README records the last observed counts. Four UI tests still expect the removed single-sample button. Earlier passing results in the historical validation document should not be treated as proof that the current suite passes.
 
 The root `test_api.py` is a diagnostic script that contacts Google's API and probes models. It is not part of the default `tests/` collection. Do not run it as an offline check.
 
@@ -113,4 +116,4 @@ $env:ALLOW_REMOTE_INFERENCE = "1"
 .\.venv\Scripts\python.exe -m pytest -m live -q
 ```
 
-These tests contact the configured service and may consume quota. The opt-in environment variable does not add a consent screen to the current app. Confirm the actual model and provider used when reporting live results.
+These tests contact the configured service and may consume quota. The test opt-in variables are separate from the app's remote-processing checkbox. Confirm the actual model and provider used when reporting live results.

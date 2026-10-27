@@ -64,10 +64,11 @@ class AnalysisPlan(StrictModel):
         "clarification",
         "per_student",
         "scenario",
+        "compare_sources",
     ]
     metric: str = Field(min_length=1, max_length=80)
     aggregation: Literal["sum", "mean", "min", "max", "count"]
-    group_by: list[str] = Field(default_factory=list, max_length=1)
+    group_by: list[str] = Field(default_factory=list, max_length=2)
     filters: list[Filter] = Field(default_factory=list, max_length=8)
     periods: list[str] = Field(default_factory=list, max_length=2)
     average_basis: Literal["observations", "monthly_totals", "building_totals"] = "observations"
@@ -77,9 +78,21 @@ class AnalysisPlan(StrictModel):
     reason: str = Field(default="", max_length=500)
     reduction_percent: float | None = Field(default=None, ge=0, le=100)
     scenario_buildings: list[str] = Field(default_factory=list, max_length=100)
+    sources: list[str] = Field(default_factory=list, max_length=10)
+    group_by_source: bool = False
 
     @model_validator(mode="after")
     def coherent(self) -> "AnalysisPlan":
+        if len(self.sources) != len(set(self.sources)):
+            raise ValueError("Duplicate source identifiers are not allowed.")
+        if len(self.group_by) > 1 and self.intent != "compare_sources":
+            raise ValueError("Multiple group columns are supported only for source comparisons.")
+        if self.group_by_source and self.intent != "trend":
+            raise ValueError("Only trends can set group_by_source.")
+        if self.intent == "compare_sources" and (
+            self.periods or self.reduction_percent is not None or self.scenario_buildings
+        ):
+            raise ValueError("Source comparisons cannot include periods or scenario values.")
         if self.intent == "report_overview" and (
             self.metric != "electricity_kwh"
             or self.aggregation != "sum"

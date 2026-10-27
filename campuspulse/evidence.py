@@ -12,7 +12,11 @@ def evidence_table(result: CalculationResult) -> pd.DataFrame:
         return frame.copy()
     is_estimate = any(w.code == "estimated_electricity_cost" for w in result.warnings)
     cols = [
+        "source_id",
+        "source_label",
         *PROVENANCE,
+        "raw_cells",
+        *[c for c in frame.columns if c.startswith("raw_")],
         *result.plan.group_by,
         *(item.column for item in result.plan.filters),
         "building_name",

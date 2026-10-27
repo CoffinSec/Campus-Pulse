@@ -6,10 +6,11 @@ import pandas as pd
 import pymupdf
 
 from campuspulse.presentation import calculation_lines, describe_plan
+from campuspulse.evidence import export_evidence
 
-TEAL = (0.03, 0.50, 0.55)
-GOLD = (0.86, 0.55, 0.15)
-MUTED = (0.61, 0.74, 0.75)
+TEAL = (0.72, 0.52, 0.49)
+GOLD = (0.45, 0.11, 0.21)
+MUTED = (0.26, 0.07, 0.12)
 
 
 def report_png(report: bytes) -> bytes:
@@ -37,7 +38,10 @@ def _chart(page, result):
         _text(page, pymupdf.Rect(left, top, right, bottom), result.answer, size=22)
         return
     grouped = result.plan.intent == "period_comparison" and not result.breakdown.empty
-    data = result.breakdown if not result.breakdown.empty else result.values
+    source_grouped = "source_id" in result.values and (
+        result.plan.intent in {"compare_sources", "per_student"} or result.plan.group_by_source
+    )
+    data = result.breakdown if grouped else result.values
     labels = list(dict.fromkeys(data.label))[:10]
     data = data.loc[data.label.isin(labels)]
     maximum = float(data.value.max()) if data.value.notna().any() else 1
@@ -52,6 +56,30 @@ def _chart(page, result):
     )
     slot = (right - left) / max(len(labels), 1)
     last_point = None
+    # Draw each source's trend independently, never connect one file to another.
+    if result.chart_type == "line" and source_grouped:
+        palette = [(0.93, 0.88, 0.81), (0.73, 0.52, 0.49), (0.45, 0.11, 0.21),
+                   (0.26, 0.07, 0.12), (0.11, 0.04, 0.07)]
+        for source_index, (sid, rows) in enumerate(data.groupby("source_id", sort=False)):
+            last = None
+            color = palette[source_index % len(palette)]
+            lookup = rows.set_index("label").value
+            for i, label in enumerate(labels):
+                if label not in lookup or pd.isna(lookup[label]):
+                    last = None
+                    continue
+                cx = left + slot * (i + .5)
+                point = (cx, bottom - float(lookup[label]) / maximum * (bottom - top - 15))
+                if last is not None:
+                    page.draw_line(last, point, color=color, width=2)
+                page.draw_circle(point, 3, color=color, fill=color)
+                last = point
+        legend = " | ".join(
+            f"{name} ({sid})" for sid, name in
+            data[["source_id", "source_label"]].drop_duplicates().itertuples(index=False)
+        )
+        _text(page, pymupdf.Rect(left, bottom + 40, right, bottom + 59), legend[:180], 7)
+        return
     winners = set(result.values.loc[result.values.value.eq(result.values.value.iloc[0]), "label"])
     for i, label in enumerate(labels):
         rows = data.loc[data.label.eq(label)]
@@ -79,9 +107,11 @@ def _chart(page, result):
             )
             last_point = point
         else:
-            series = result.plan.periods if grouped else [None]
+            series = (result.plan.periods if grouped else
+                      list(result.values.source_id.unique()) if source_grouped else [None])
             for j, period in enumerate(series):
-                selected = rows.loc[rows.period.eq(period)] if grouped else rows
+                selected = (rows.loc[rows.period.eq(period)] if grouped else
+                            rows.loc[rows.source_id.eq(period)] if source_grouped else rows)
                 if selected.empty or pd.isna(selected.value.iloc[0]):
                     continue
                 value = float(selected.value.iloc[0])
@@ -95,6 +125,10 @@ def _chart(page, result):
                 )
                 page.draw_rect(pymupdf.Rect(x, y, x + width * 0.9, bottom), color=color, fill=color)
                 _text(page, pymupdf.Rect(x - 4, y - 18, x + width + 4, y - 2), f"{value:,.0f}", 7)
+    if source_grouped:
+        legend = " | ".join(f"{str(sid)}: {str(result.values.loc[result.values.source_id.eq(sid), 'source_label'].iloc[0])}"
+                            for sid in series)
+        _text(page, pymupdf.Rect(left, bottom + 40, right, bottom + 59), legend[:180], 7)
     if grouped:
         _text(
             page,
@@ -109,7 +143,7 @@ def answer_pdf(
 ) -> bytes:
     with pymupdf.open() as document:
         page = document.new_page(width=595, height=842)
-        header = f"""<h1 style='color:#087f8c'>CampusPulse</h1>
+        header = f"""<h1 style='color:#721D35'>CampusPulse</h1>
         <p><b>{escape(classification)}</b></p>
         <h3>{escape(question[:500])}</h3><p>{escape(result.answer[:1100])}</p>
         <p>{escape(describe_plan(result, ai))}</p>"""
@@ -120,6 +154,10 @@ def answer_pdf(
         )
         _chart(page, result)
         working = calculation_lines(result)
+        if "source_id" in result.evidence:
+            labels = result.evidence[["source_id", "source_label"]].drop_duplicates()
+            working.insert(0, "Sources: " + ", ".join(
+                f"{r.source_label} ({r.source_id})" for r in labels.itertuples(index=False)))
         warnings = [
             w.message for w in result.warnings
             if not (w.code == "missing_values" and "occupancy" in w.message)
@@ -146,5 +184,13 @@ def answer_pdf(
             body,
             css="body {font-family:sans-serif;font-size:9pt;} p,ul {margin:4pt 0}",
         )
+        # The one-page narrative stays readable; the attached CSV retains EVERY
+        # contributing row, its raw cells and original source provenance.
+        if result.status == "ok" and not result.evidence.empty:
+            document.embfile_add(
+                "campuspulse_evidence.csv", export_evidence(result),
+                filename="campuspulse_evidence.csv", ufilename="campuspulse_evidence.csv",
+                desc="Every contributing source row and its original provenance",
+            )
         document.set_metadata({"title": "CampusPulse answer report", "author": "CampusPulse"})
         return document.tobytes(deflate=True)

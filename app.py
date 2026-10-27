@@ -17,6 +17,15 @@ from campuspulse.explanations import explain_result, fallback_explanation, langu
 from campuspulse.gemma_client import GemmaClient
 from campuspulse.ingestion import ingest
 from campuspulse.insights import anomaly_flags, overview
+from campuspulse.ingestion import safe_filename
+from campuspulse.multi_source import (
+    SourceEntry,
+    combine_sources,
+    remove_source,
+    replace_source,
+    source_id_for,
+    reviewed_building_match,
+)
 from campuspulse.models import AIError, AnalysisPlan, DataError, Filter, PlanError
 from campuspulse.normalization import (
     ALIASES,
@@ -98,10 +107,6 @@ def review_data() -> None:
         else 0
     )
     if st.session_state.get("selected_table") != selected:
-        st.session_state.pop("dataset", None)
-        st.session_state.pop("overview", None)
-        st.session_state.pop("anomalies", None)
-        st.session_state.history = []
         st.session_state.selected_table = selected
     table = tables[selected]
     st.dataframe(
@@ -200,74 +205,189 @@ def review_data() -> None:
         confirmed = st.checkbox("I reviewed the selected table, column meanings and units.")
         submitted = st.form_submit_button("Confirm dataset", type="primary")
     if submitted:
-        st.session_state.pop("dataset", None)
-        st.session_state.pop("overview", None)
-        st.session_state.pop("anomalies", None)
-        st.session_state.history = []
         if not confirmed:
             st.warning("Review the mapping and check the confirmation box first.")
         else:
             try:
                 base = normalize(table, mapping, unit, classification, int(year) or None)
-                st.session_state.base_dataset = base
-                st.session_state.dataset = apply_custom_tariff(base, custom_rate)
-                st.session_state.active_cost_mode = (
-                    "Other — custom rate" if custom_rate is not None
-                    else "From uploaded report"
-                )
-                if custom_rate is not None:
-                    st.session_state.active_cost_rate = float(custom_rate)
-                st.success("Dataset validated and confirmed. You can now analyze it.")
+                source_id = st.session_state.get("current_source_id")
+                if source_id:
+                    item = st.session_state.pending_sources.pop(source_id)
+                    st.session_state.sources = replace_source(st.session_state.sources,
+                        SourceEntry(source_id, item["filename"], item["filename"], base))
+                    if custom_rate is not None:
+                        st.session_state.active_cost_mode = "Other — custom rate"
+                        st.session_state.active_cost_rate = float(custom_rate)
+                    rebuild_combined()
+                else:
+                    st.session_state.base_dataset = base
+                    st.session_state.dataset = apply_custom_tariff(base, custom_rate)
+                st.success("Source confirmed and ready to explore.")
                 st.rerun()
             except DataError as exc:
                 st.error(str(exc))
+
+
+def rebuild_combined() -> None:
+    """Rebuild from original confirmed in-memory datasets, never estimated rows."""
+    entries = st.session_state.get("sources", [])
+    st.session_state.history = []
+    st.session_state.pop("overview", None)
+    st.session_state.pop("anomalies", None)
+    st.session_state.generation = st.session_state.get("generation", 0) + 1
+    if not entries:
+        st.session_state.pop("dataset", None)
+        st.session_state.pop("base_dataset", None)
+        return
+    base = combine_sources(entries)
+    st.session_state.base_dataset = base
+    rate = (float(st.session_state.get("active_cost_rate", 10.0))
+            if st.session_state.get("active_cost_mode") == "Other — custom rate" else None)
+    st.session_state.dataset = apply_custom_tariff(base, rate)
 
 
 def electricity_cost_settings() -> None:
-    """Rebuild costs from confirmed source data when the global tariff changes."""
-    base = st.session_state.get("base_dataset")
-    if base is None:
+    """Global tariff applies to every confirmed report, with stale context cleared."""
+    if st.session_state.get("base_dataset") is None:
         return
     with st.expander("Electricity cost (INR) · change global rate"):
-        mode = st.selectbox(
-            "Cost mode",
-            ["From uploaded report", "Other — custom rate"],
-            key="active_cost_mode",
-        )
-        rate = None
+        mode = st.selectbox("Cost mode", ["From uploaded report", "Other — custom rate"],
+                            key="active_cost_mode")
         if mode == "Other — custom rate":
-            # Initialize the widget key only once. Supplying both a value=
-            # default and st.session_state["active_cost_rate"] makes Streamlit
-            # warn about conflicting defaults when a dataset is confirmed.
             if "active_cost_rate" not in st.session_state:
-                st.session_state["active_cost_rate"] = 10.0
-            rate = st.number_input(
-                "Global electricity rate (₹ per kWh)",
-                min_value=0.0,
-                max_value=1_000_000.0,
-                step=0.5,
-                format="%.2f",
-                key="active_cost_rate",
-            )
-            st.caption("Applied to every building and month, not an actual electricity bill.")
+                st.session_state.active_cost_rate = 10.0
+            st.number_input("Global electricity rate (₹ per kWh)", min_value=0.0,
+                            max_value=1_000_000.0, step=0.5, format="%.2f",
+                            key="active_cost_rate")
+            st.caption("One rate applies to every confirmed file; estimated cost is not a bill.")
         if st.button("Apply electricity rate to all data", type="primary"):
             try:
-                updated = apply_custom_tariff(base, rate)
+                rebuild_combined()
+                st.rerun()
             except DataError as exc:
                 st.error(str(exc))
-            else:
-                st.session_state.dataset = updated
-                st.session_state.pop("overview", None)
-                st.session_state.pop("anomalies", None)
-                st.session_state.history = []  # Old cost results used the old rate.
-                st.session_state.generation += 1
-                st.rerun()
     current = st.session_state.dataset.custom_tariff_inr_per_kwh
     if current is not None:
-        st.caption(
-            f"Active global estimated cost rate: ₹{current:,.2f}/kWh. "
-            "All cost answers and exports use this rate."
-        )
+        st.caption(f"Active global estimate: ₹{current:,.2f}/kWh, across all selected sources.")
+
+
+def _ingest_source(data: bytes, filename: str, settings: Settings, separator: str | None) -> None:
+    """Parse and keep only extracted tables; uploaded bytes are not stored."""
+    digest = hashlib.sha256(data).hexdigest()
+    seen = st.session_state.setdefault("seen_uploads", set())
+    signature = (digest, safe_filename(filename))
+    if signature in seen:
+        return
+    taken = {e.source_id for e in st.session_state.get("sources", [])} | set(st.session_state.get("pending_sources", {}))
+    source_id = source_id_for(filename, taken)
+    seen.add(signature)
+    try:
+        tables = ingest(data, filename, settings, separator)
+        sample_digests = {hashlib.sha256(file.read_bytes()).hexdigest()
+            for file in (ROOT / "data").glob("campus_electricity_sample*.*")}
+        status = "pending"
+        error = ""
+    except DataError as exc:
+        tables, sample_digests, status, error = [], set(), "error", str(exc)
+    st.session_state.pending_sources[source_id] = {
+        "filename": safe_filename(filename), "tables": tables, "bytes": len(data),
+        "digest": digest, "status": status, "error": error,
+        "classification": SYNTHETIC if digest in sample_digests else "User-provided · unverified",
+    }
+
+
+def sources_panel(settings: Settings) -> None:
+    """Per-source status, review queue, label edits and removal."""
+    st.subheader("Uploaded reports")
+    sources = st.session_state.get("sources", [])
+    pending = st.session_state.get("pending_sources", {})
+    for entry in list(sources):
+        a, b, c = st.columns([3, 1, 1], vertical_alignment="center")
+        with a:
+            label = st.text_input(f"Label · {entry.filename}", value=entry.label,
+                                  max_chars=100, key=f"source_label_{entry.source_id}")
+            st.caption(f"Confirmed · {len(entry.dataset.frame)} rows · "
+                       f"{entry.dataset.months[0]} to {entry.dataset.months[-1]}")
+        if b.button("Rename", key=f"rename_{entry.source_id}"):
+            try:
+                from campuspulse.multi_source import bind_source
+                bind_source(entry.dataset, entry.source_id, label)
+                entry.label = label.strip()
+                rebuild_combined()
+                st.rerun()
+            except DataError as exc:
+                st.error(str(exc))
+        if c.button("Remove", key=f"remove_{entry.source_id}"):
+            st.session_state.sources = remove_source(sources, entry.source_id)
+            # Reset uploader selection so its old widget value cannot re-add it.
+            st.session_state.upload_epoch += 1
+            st.session_state.seen_uploads.clear()
+            rebuild_combined()
+            st.rerun()
+    # Never auto-normalise a similar-looking building name. Show an explicit
+    # review control; retain original raw labels and provenance after changes.
+    if len(sources) > 1:
+        from difflib import get_close_matches
+
+        with st.expander("Review possible building-name matches · optional"):
+            canonical = sorted(set(sources[0].dataset.frame.building_name))
+            st.caption("These are only suggestions. Nothing is merged until you confirm.")
+            for entry in sources[1:]:
+                other = sorted(set(entry.dataset.frame.building_name) - set(canonical))
+                for original in other:
+                    candidates = get_close_matches(original, canonical, n=3, cutoff=0.65)
+                    if not candidates:
+                        continue
+                    st.caption(f"{entry.label}: {original} may match {', '.join(candidates)}")
+                    target = st.selectbox(
+                        f"Canonical label for {original} ({entry.label})",
+                        ["Keep separate", *candidates],
+                        key=f"alias_{entry.source_id}_{original}",
+                    )
+                    agreed = st.checkbox(
+                        f"I checked that {original} is the same building as {target}",
+                        key=f"alias_confirm_{entry.source_id}_{original}",
+                    )
+                    if st.button("Apply reviewed match", key=f"alias_apply_{entry.source_id}_{original}"):
+                        if target == "Keep separate" or not agreed:
+                            st.error("Choose a label and explicitly confirm the match first.")
+                        else:
+                            try:
+                                matched = reviewed_building_match(entry, original, target)
+                                st.session_state.sources = replace_source(sources, matched)
+                                rebuild_combined()
+                                st.rerun()
+                            except DataError as exc:
+                                st.error(str(exc))
+    for source_id, item in list(pending.items()):
+        a, b = st.columns([4, 1], vertical_alignment="center")
+        a.caption(f"{item['filename']} · {item['status']} · {item['bytes'] / 1024:.1f} KB"
+                  + (f" · {item['error']}" if item['error'] else ""))
+        if b.button("Remove", key=f"pending_remove_{source_id}"):
+            del pending[source_id]
+            st.session_state.upload_epoch += 1
+            st.session_state.seen_uploads.clear()
+            st.session_state.history = []
+            st.rerun()
+    if pending:
+        active = st.selectbox("Choose a file to review and confirm", list(pending),
+            format_func=lambda sid: pending[sid]["filename"], key="active_review")
+        item = pending[active]
+        if item['status'] == 'pending':
+            if st.session_state.get('selected_review_id') != active:
+                st.session_state.selected_review_id = active
+                st.session_state.selected_table = None
+                st.session_state.generation += 1
+            st.session_state.tables = item['tables']
+            st.session_state.classification = item['classification']
+            st.session_state.source_name = item['filename']
+            st.session_state.source_size = item['bytes']
+            st.session_state.current_source_id = active
+            with st.expander(f"Confirm {item['filename']}", expanded=True):
+                review_data()
+    elif not sources:
+        st.info("Upload a file or load synthetic samples to begin.")
+
 
 
 def manual_analysis(dataset) -> None:
@@ -281,8 +401,10 @@ def manual_analysis(dataset) -> None:
                 "Highest building",
                 "Lowest building",
                 "Monthly trend",
+                "Trend per report",
                 "Period comparison",
                 "Group comparison",
+                "Compare reports",
                 "Total",
                 "Mean of observations",
                 "Mean of monthly totals",
@@ -302,6 +424,10 @@ def manual_analysis(dataset) -> None:
                 + (["Electricity cost (INR)"] if cost_available else []),
                 help="Cost uses the rate you selected for the entire confirmed dataset.",
             )
+            source_options = [e.source_id for e in st.session_state.get("sources", [])]
+            source_labels = {e.source_id: e.label for e in st.session_state.get("sources", [])}
+            picked_sources = st.multiselect("Sources", source_options, default=source_options,
+                format_func=lambda sid: source_labels.get(sid, sid))
             buildings = sorted(dataset.frame.building_name.unique())
             selected_buildings = st.multiselect("Buildings (empty = all)", buildings)
             month, old, new, reduction = "All months", None, None, 10.0
@@ -311,7 +437,7 @@ def manual_analysis(dataset) -> None:
                     "Old period", dataset.months, index=max(0, len(dataset.months) - 2)
                 )
                 new = b.selectbox("New period", dataset.months, index=len(dataset.months) - 1)
-            elif operation != "Monthly trend":
+            elif operation not in {"Monthly trend", "Trend per report"}:
                 month = st.selectbox("Month", ["All months", *dataset.months])
             if operation == "What-if reduction":
                 reduction = st.number_input(
@@ -326,6 +452,9 @@ def manual_analysis(dataset) -> None:
                 )
             run = st.form_submit_button("Run verified calculation", type="primary")
         if run:
+            if not picked_sources:
+                st.error("Select at least one source before running a calculation.")
+                return
             started = perf_counter()
             filters = []
             if selected_buildings and operation != "What-if reduction":
@@ -338,7 +467,7 @@ def manual_analysis(dataset) -> None:
                 "electricity_cost_inr" if metric_option == "Electricity cost (INR)"
                 else "electricity_kwh"
             )
-            args = {"metric": selected_metric, "aggregation": "sum", "filters": filters}
+            args = {"metric": selected_metric, "aggregation": "sum", "filters": filters, "sources": picked_sources}
             if operation in {"Highest building", "Lowest building"}:
                 args.update(
                     intent="ranking",
@@ -346,12 +475,15 @@ def manual_analysis(dataset) -> None:
                     limit=1,
                     sort="ascending" if operation == "Lowest building" else "descending",
                 )
-            elif operation == "Monthly trend":
-                args.update(intent="trend", group_by=["month"])
+            elif operation in {"Monthly trend", "Trend per report"}:
+                args.update(intent="trend", group_by=["month"],
+                            group_by_source=(operation == "Trend per report"))
             elif operation == "Period comparison":
                 args.update(intent="period_comparison", periods=[old, new])
             elif operation == "Group comparison":
                 args.update(intent="group_comparison", group_by=["building_name"])
+            elif operation == "Compare reports":
+                args.update(intent="compare_sources", group_by=["building_name"])
             elif operation == "Usage per student":
                 args.update(intent="per_student", metric="electricity_kwh", aggregation="mean", group_by=["building_name"])
             elif operation == "What-if reduction":
@@ -360,8 +492,8 @@ def manual_analysis(dataset) -> None:
                     scenario_buildings=selected_buildings,
                     reduction_percent=reduction,
                 )
-            # elif operation == "Missing values":
-            #     args.update(intent="missing_values")
+            elif operation == "Missing values":
+                args.update(intent="missing_values")
             else:
                 args.update(intent="aggregate")
                 if operation.startswith("Mean"):
@@ -475,7 +607,7 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
             st.error(entry["error"])
             return None
         if "message" in entry:
-            st.write(entry["message"])
+            st.text(entry["message"])
             return None
         result = entry["result"]
         st.caption(describe_plan(result, ai))
@@ -520,18 +652,17 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                 st.warning(
                     "The chart is unavailable. The verified values and working are shown below."
                 )
-        with st.expander("Calculation breakdown & result table"):
-            st.markdown("**How this was calculated**")
-            for line in calculation_lines(result):
-                styled_text(line, "formula")
-            if not result.values.empty:
-                st.dataframe(
-                    result.values.rename(
-                        columns={"label": "Building / period", "value": f"Result ({result.unit})"}
-                    ),
-                    hide_index=True,
-                    width="stretch",
-                )
+        st.markdown("**How this was calculated**")
+        for line in calculation_lines(result):
+            styled_text(line, "formula")
+        if not result.values.empty:
+            st.dataframe(
+                result.values.rename(
+                    columns={"label": "Building / period", "value": f"Result ({result.unit})"}
+                ),
+                hide_index=True,
+                width="stretch",
+            )
         seen = set()
         for warning in result.warnings:
             if warning.message in seen:
@@ -557,9 +688,9 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
                     if explanation.generated
                     else "Verified summary · no AI explanation"
                 )
-                st.write(explanation.meaning)
+                st.text(explanation.meaning)
                 for check in explanation.checks:
-                    st.write("• " + check)
+                    st.text("• " + check)
                 st.caption("Possible checks, not established causes.")
         if entry.get("explanation_error"):
             st.warning(entry["explanation_error"], icon="⚠️")
@@ -663,67 +794,30 @@ def render_result(entry: dict, index: int, dataset, can_ask: bool):
 
 
 def upload_panel(settings):
-    with st.container(border=True, key="upload_section"):
-        left, right = st.columns([2, 1], gap="large")
-        with left:
-            st.subheader("Add your campus report")
-            st.caption(
-                f"A PDF table or CSV with building, month and electricity use · up to {min(settings.max_upload_mb, 10)} MB"
-            )
-            uploaded = st.file_uploader(
-                "Choose a PDF or CSV",
-                type=["pdf", "csv"],
-                key=f"upload_{st.session_state.upload_epoch}",
-            )
-            with st.expander("CSV options"):
-                separator_label = st.selectbox(
-                    "CSV separator", ["Auto", "Comma", "Semicolon", "Tab", "Pipe"]
-                )
-            separator = {"Auto": None, "Comma": ",", "Semicolon": ";", "Tab": "\t", "Pipe": "|"}[
-                separator_label
-            ]
-            if uploaded is not None:
-                data = uploaded.getvalue()
-                signature = (hashlib.sha256(data).hexdigest(), uploaded.name, separator)
-                if st.session_state.get("processed_upload") != signature:
-                    st.session_state.processed_upload = signature
-                    st.session_state.pop("upload_error", None)
-                    try:
-                        load_data(data, uploaded.name, settings, separator)
-                        st.rerun()
-                    except DataError as exc:
-                        st.session_state.upload_error = str(exc)
-            if st.session_state.get("upload_error"):
-                st.error(st.session_state.upload_error)
-        with right:
-            styled_text("Try it first", "eyebrow")
-            st.markdown("**See what your campus data can tell you.**")
-            st.caption(
-                "Explore 5 buildings across 6 months with a fictional campus report. No file needed."
-            )
-            for suffix, label in [("pdf", "Load synthetic PDF"), ("csv", "Load synthetic CSV")]:
-                if st.button(
-                    label, width="stretch", type="primary" if suffix == "pdf" else "secondary"
-                ):
-                    path = ROOT / "data" / f"campus_electricity_sample.{suffix}"
-                    try:
-                        load_data(path.read_bytes(), path.name, settings, None)
-                        st.session_state.upload_epoch += 1
-                        st.session_state.pop("processed_upload", None)
-                        st.session_state.pop("upload_error", None)
-                        st.rerun()
-                    except (DataError, OSError) as exc:
-                        st.error(str(exc))
-            with st.expander("Get the example files"):
-                for suffix in ["pdf", "csv"]:
-                    path = ROOT / "data" / f"campus_electricity_sample.{suffix}"
-                    st.download_button(
-                        f"Download sample {suffix.upper()}", path.read_bytes(), path.name
-                    )
-        if st.session_state.get("source_name"):
-            st.caption(
-                f"Loaded: {st.session_state.source_name} · {st.session_state.source_size / 1024:.1f} KB · {len(st.session_state.tables)} detected table(s)"
-            )
+    with st.container(border=True):
+        st.subheader("Add campus reports")
+        st.caption(f"Up to {settings.max_files} PDF/CSV files, {settings.max_upload_mb} MB per file; "
+                   f"up to {settings.max_pdf_pages} pages per PDF. Confirm each file individually.")
+        uploaded_files = st.file_uploader("Choose reports", type=["pdf", "csv"],
+            accept_multiple_files=True, key=f"multi_upload_{st.session_state.upload_epoch}")
+        separator_label = st.selectbox("CSV separator", ["Auto", "Comma", "Semicolon", "Tab", "Pipe"])
+        separator = {"Auto": None, "Comma": ",", "Semicolon": ";", "Tab": "\t", "Pipe": "|"}[separator_label]
+        for uploaded in uploaded_files or []:
+            total = len(st.session_state.get("sources", [])) + len(st.session_state.pending_sources)
+            if total >= settings.max_files:
+                st.warning(f"Maximum {settings.max_files} reports per session. Remove one to add another.")
+                break
+            _ingest_source(uploaded.getvalue(), uploaded.name, settings, separator)
+        if st.button("Load two synthetic samples", width="stretch"):
+            paths = [ROOT / "data" / f"campus_electricity_sample{suffix}.csv"
+                     for suffix in ("", "_overlap")]
+            if all(p.exists() for p in paths):
+                for path in paths:
+                    _ingest_source(path.read_bytes(), path.name, settings, None)
+                st.rerun()
+            else:
+                st.warning("The example generator has not produced the second sample yet.")
+        sources_panel(settings)
 
 
 def run_question(question, previous_plan, dataset, settings, client, allow_remote=True):
@@ -731,7 +825,12 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
     entry = {"question": question, "mode": f"Gemma · {settings.model_name}"}
     # General greetings and whole-report summaries are not calculation plans;
     # answer them immediately instead of asking Gemma to invent one.
-    reply = quick_reply(question, dataset)
+    chosen = st.session_state.get("selected_sources", [])
+    if "source_id" in dataset.frame and chosen:
+        scoped = dataset.frame.loc[dataset.frame.source_id.isin(chosen)].copy()
+        dataset = type(dataset)(scoped, dataset.columns, dataset.classification,
+                                dataset.warnings, dataset.custom_tariff_inr_per_kwh)
+    reply = quick_reply(question, dataset) if "source_id" not in dataset.frame or dataset.frame.source_id.nunique() == 1 else None
     if reply is not None:
         entry.update(mode="Verified report · no AI needed", message=reply,
                      elapsed=perf_counter() - started)
@@ -742,13 +841,14 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
     with st.status("Gemma is planning…", expanded=True) as progress:
         try:
             plan = plan_question(
-                question, dataset, settings, client, allow_remote=True, previous_plan=previous_plan
+                question, dataset, settings, client, allow_remote=allow_remote,
+                previous_plan=previous_plan, selected_sources=chosen
             )
             if plan.intent == "report_overview":
                 # Gemma handles open-ended paraphrases, but verified Python
                 # derives every number and caveat from the uploaded dataset.
                 entry.update(
-                    message=report_summary(dataset),
+                    message=report_summary(dataset, question),
                     mode=f"Gemma · {settings.model_name} · verified overview",
                     elapsed=perf_counter() - started,
                 )
@@ -761,6 +861,8 @@ def run_question(question, previous_plan, dataset, settings, client, allow_remot
                 return
             progress.update(label="Calculating…")
             st.write("Checking the requested operation and calculating from the confirmed data.")
+            if not plan.sources and chosen:
+                plan = plan.model_copy(update={"sources": chosen})
             result = calculate(dataset, plan)
             entry["result"] = result
             if result.status == "ok":
@@ -801,87 +903,63 @@ def main() -> None:
     for key, default in {"history": [], "generation": 0, "upload_epoch": 0}.items():
         if key not in st.session_state:
             st.session_state[key] = default
+    st.session_state.setdefault("sources", [])
+    st.session_state.setdefault("pending_sources", {})
+    st.session_state.setdefault("seen_uploads", set())
     client = GemmaClient(settings)
     if "model_status" not in st.session_state:
         st.session_state.model_status = client.check()
     status = st.session_state.model_status
-    with st.container(key="campuspulse_header"):
-        header, connection = st.columns([4, 1], vertical_alignment="center", gap="large")
-        with header:
-            styled_text("Campus energy, made clear", "eyebrow")
-            st.title("CampusPulse")
-            styled_text("Turn your electricity report into answers you can explain.", "lead")
-        with connection:
-            st.badge(
-                "Gemma connected" if status.ready else "Gemma offline",
-                color="green" if status.ready else "orange",
-            )
-            with st.popover("Connection settings", width="stretch"):
-                st.caption(status.message)
-                st.text(f"Model: {settings.model_name}")
-                st.caption(f"Endpoint: {settings.endpoint_label}")
-                with st.expander("Gemma Engine Info"):
-                    st.code(
-                        f"MODEL={settings.model_name}\nSTATUS={'READY' if status.ready else 'OFFLINE'}",
-                        language="bash",
-                    )
-                    st.caption("Model and connection status for this application session.")
-                if st.button("Refresh connection"):
-                    st.session_state.model_status = client.check()
-                    st.rerun()
-    stage = 2 if "dataset" in st.session_state else 1 if st.session_state.get("tables") else 0
-    progress_steps(stage)
-    if st.session_state.get("source_name"):
-        with st.container(border=True, key="source_card"):
-            file_info, file_action = st.columns([4, 1], vertical_alignment="center")
-            with file_info:
-                styled_text(st.session_state.source_name, "file")
-                st.caption(
-                    f"{st.session_state.source_size / 1024:.1f} KB · {len(st.session_state.tables)} table(s) · "
-                    + ("Confirmed and ready to explore" if stage == 2 else "Ready for your review")
-                )
-            if file_action.button("Use another file", width="stretch"):
-                clear_data()
-                st.session_state.upload_epoch += 1
-                st.session_state.pop("processed_upload", None)
-                st.session_state.pop("upload_error", None)
-                st.rerun()
-        with st.expander("Upload or try another sample"):
-            upload_panel(settings)
-    else:
-        upload_panel(settings)
-    if not st.session_state.get("tables"):
-        for column, title, body in zip(
-            st.columns(3),
-            ["See the big picture", "Ask in your own words", "Follow every number"],
-            [
-                "Totals, trends and unusual changes, before your first question.",
-                "Compare buildings, explore usage per student, or try a what-if scenario.",
-                "Clear calculations, original source rows and a report you can share.",
-            ],
-            strict=True,
-        ):
-            with column:
-                styled_text(title, "eyebrow")
-                styled_text(body, "help")
-        st.caption(
-            "Searchable PDFs and UTF-8 CSVs supported. Scanned reports need OCR first. Files are processed in this app session on the hosting server. Demo data is fictional, with no official university endorsement."
+    header, connection = st.columns([4, 1], vertical_alignment="center")
+    with header:
+        styled_text("Campus energy, made clear", "eyebrow")
+        st.title("CampusPulse")
+        styled_text("Turn your electricity report into answers you can explain.", "lead")
+    with connection:
+        st.badge(
+            "Gemma configured" if status.ready else "Gemma offline",
+            color="green" if status.ready else "orange",
         )
-        return
-    with st.expander("2. Check your data", expanded="dataset" not in st.session_state):
-        review_data()
+        with st.popover("Connection settings", width="stretch"):
+            st.caption(status.message)
+            st.text(f"Model: {settings.model_name}")
+            st.caption(f"Endpoint: {settings.endpoint_label}")
+            with st.expander("Gemma Engine Info"):
+                st.code(
+                    f"PROVIDER={settings.provider}\nMODEL={settings.gemini_model if settings.provider == 'gemini' else settings.ollama_model}",
+                    language="bash",
+                )
+                st.caption("Hosted inference is not an offline or local model.")
+            if st.button("Refresh connection"):
+                st.session_state.model_status = client.check()
+                st.rerun()
+    stage = 2 if st.session_state.get("dataset") is not None else 1 if st.session_state.get("pending_sources") else 0
+    progress_steps(stage)
+    upload_panel(settings)
     dataset = st.session_state.get("dataset")
     if dataset is None:
+        st.caption("PDFs must have selectable text; scanned PDFs require OCR first. "
+                   "Uploaded bytes are not stored. Every source stays in this session.")
         return
     electricity_cost_settings()
-    with st.container(key="overview_panel"):
-        render_overview(dataset)
+    render_overview(dataset)
     st.divider()
     st.subheader("What would you like to know?")
     st.caption(
         "Ask in English, Hindi or Hinglish. You can follow up with “and in May?” or “what about hostels only?”"
     )
-    can_ask = status.ready
+    options = [e.source_id for e in st.session_state.get("sources", [])]
+    labels = {e.source_id: e.label for e in st.session_state.get("sources", [])}
+    selected_sources = st.multiselect("Sources to use (leave all selected to analyze all reports)",
+        options, default=options, format_func=lambda sid: labels.get(sid, sid),
+        key=f"scope_{st.session_state.generation}")
+    st.session_state.selected_sources = selected_sources
+    if not selected_sources:
+        st.warning("Select at least one source for analysis.")
+    if settings.endpoint_kind == "Remote":
+        st.checkbox("I agree to send my question, data schema/labels and verified summaries to the hosted model (not raw rows/files).",
+                    key="remote_consent")
+    can_ask = status.ready and bool(selected_sources)
     if not status.ready:
         st.info(
             "Connect Gemma to ask questions in your own words. You can explore now with ‘Choose a calculation’ below.",
@@ -921,7 +999,11 @@ def main() -> None:
     )
     question = typed or question
     if question:
-        run_question(question, previous_plan, dataset, settings, client, allow_remote=True)
+        if settings.endpoint_kind == "Remote" and not st.session_state.get("remote_consent", False):
+            st.warning("Please confirm hosted/remote Gemma processing before sending this question.")
+        else:
+            run_question(question, previous_plan, dataset, settings, client,
+                         allow_remote=settings.endpoint_kind != "Remote" or st.session_state.remote_consent)
 
 
 if __name__ == "__main__":

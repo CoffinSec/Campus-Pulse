@@ -106,3 +106,39 @@ Optionally load and confirm the CSV, then repeat the comparison to demonstrate t
 - Show the **What this means / what could be checked** box. Gemma supplies prose using verified fact references; unverified numerical claims cause a visible fallback. Hindi questions request Hindi explanatory prose. Suggested checks are not established causes.
 - Download the one-page PDF, a PNG of the same report, or source CSV directly beneath an answer.
 - The bundled smooth series has no anomaly flags. The automated spike fixture proves detection without fabricating an anomaly in the sample; the UI always states “cause unknown” for flags. A flag needs at least three prior valid monthly changes.
+
+
+## Multi-file / custom theme demo (October 2026)
+
+1. Run `python -m scripts.generate_demo_data`, then launch Streamlit.
+2. Use **Load two synthetic samples** and confirm the original and overlap report separately. Both are fictional.
+3. Select both in **Sources to use** and ask `Compare both reports by building`; verify the plain-language source scope, grouped bars and calculated changes. Or use **Choose a calculation · no AI needed → Compare reports**.
+4. Ask `Trend per file` / `Dono files ka trend dikhao` / `दो रिपोर्ट का मासिक ट्रेंड दिखाओ` for multi-line trends.
+5. Upload `campus_electricity_sample_h2.pdf` instead of the overlap report to show nonoverlapping-month caveat.
+6. Set **Other → ₹10 per kWh** and re-run a cost comparison. All sources share the rate; taxes, fixed charges and slabs are not included.
+7. Download evidence CSV and answer PDF/PNG to show source names, original file/table/page/row citations, and warnings. Do not present synthetic figures as institutional readings.
+8. The champagne/rose-gold/dark-cherry UI is a visual theme, not evidence that an AI has passed live tests.
+
+Remote Gemma API responses and Hindi/Hinglish understanding must be demonstrated on an actual reachable model. The offline tests use mocked plans and deterministic calculations; those alone do not establish live inference quality.
+
+
+## Multi-file live demo (synthetic data only)
+
+1. Click **Load two synthetic samples** and confirm **each pending file**
+   separately (select columns, verify units, tick checkbox). Both reports have
+   the same months by design, so comparing differences is meaningful.
+2. Observe both confirmed source labels and source row counts; rename one
+   source to `Revised report`.
+3. Under **Sources to use**, keep both selected. In offline manual mode choose
+   **Compare reports**. The grouped chart and change table use the two source
+   labels; no row from one source overwrites the other.
+4. If Gemma is configured and remote consent granted where applicable, ask:
+   `Which building used more in the revised report?`; `dono reports compare karo`;
+   `दोनों रिपोर्टों की मासिक प्रवृत्ति दिखाओ` (interpretation remains unverified
+   until a real model test runs).
+5. Inspect **How this was calculated**, then download CSV/PDF evidence.
+   Select only the first source and ask a ranking question to show source scope.
+6. Remove one report; previous answers disappear. Re-uploading is allowed.
+7. Enter one global INR/kWh rate and show estimated, not billed, cost.
+
+If model access is unavailable, do not label manual calculations as Gemma output.
